@@ -1,0 +1,60 @@
+:root {
+  --paper: #F3F5F2;
+  --paper-line: #E2DFD1;
+  --ink: #181B18;
+  --ink-soft: #63685F;
+  --ink-faint: #9A9C8F;
+  --panel: #FFFFFF;
+  --border: #DAD6C5;
+  --border-soft: #E8E5D8;
+  --teal: #0B6E6E;
+  --teal-soft: #E2EFEC;
+  --amber: #B9791C;
+  --amber-soft: #F7ECD8;
+  --red: #A8492F;
+  --red-soft: #F5E4DD;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  background-image: linear-gradient(var(--paper-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+input, select, button { font-family: inherit; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.btn-primary { background: var(--teal); color: white; border-color: var(--teal); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
+.btn:disabled, .btn-ghost:disabled { opacity: 0.5; cursor: default; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+}
+input[type="text"], input[type="email"], input[type="password"], input[type="url"] {
+  padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 13px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }
+
+.chart-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .chart-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1000px) {
+  .chart-grid { grid-template-columns: repeat(3, 1fr); }
+}
