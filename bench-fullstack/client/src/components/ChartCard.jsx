@@ -7,7 +7,7 @@ import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
   ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil,
 } from "lucide-react";
-import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, DIM_COLOR } from "./charting";
+import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, DIM_COLOR, SERIES } from "./charting";
 import { evaluateKpiFormula } from "./kpiFormula";
 import { timeAgo } from "../utils";
 
@@ -45,6 +45,7 @@ function ClickableDot({ cx, cy, payload, isDim, onDotClick, color }) {
   if (cx == null || cy == null) return null;
   return (
     <circle
+      className="clickable-dot"
       cx={cx}
       cy={cy}
       r={isDim ? 3 : 5}
@@ -174,6 +175,47 @@ export default function ChartCard({
     return { value: aggField(numberSourceRows, numberField, numberAgg), error: null };
   }, [isNumber, numberMode, numberFormula, numberField, numberAgg, numberSourceRows, numberFieldNames]);
 
+  // Count-up animation (item 4, read-only only). Re-runs whenever the target value changes
+  // (mount, or a filter/selection change on a live dashboard), always counting from 0 over a
+  // fixed short duration rather than tracking an in-flight "previous value" — simpler, and the
+  // effect's cleanup cancels any still-running frame from a superseded target. Degrades
+  // gracefully: null/error values skip the animation loop entirely and render the same "—"/
+  // error text the editor already shows, on every render, with no risk of an infinite loop or
+  // a stuck animation frame.
+  const [displayedNumberValue, setDisplayedNumberValue] = useState(null);
+  useEffect(() => {
+    if (!readOnly || !isNumber) return;
+    if (numberResult.error || numberResult.value == null || Number.isNaN(numberResult.value)) {
+      setDisplayedNumberValue(numberResult.value);
+      return;
+    }
+    const target = numberResult.value;
+    const duration = 600;
+    const start = performance.now();
+    let raf;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayedNumberValue(target * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [readOnly, isNumber, numberResult.value, numberResult.error]);
+
+  // Sparkline (item 4, read-only only, quick mode only — a formula can reference more than one
+  // field, so there's no single unambiguous measure to trend). Needs a temporal-looking
+  // dimension on the sheet to bucket by; if there isn't one (or there's only one bucket to show,
+  // i.e. no real trend), this stays null and the sparkline is skipped entirely — no empty/broken
+  // mini-chart ever renders.
+  const numberSparkline = useMemo(() => {
+    if (!readOnly || !isNumber || numberMode !== "quick" || !numberField) return null;
+    const temporalField = (dims || []).find((d) => looksTemporal(d.name));
+    if (!temporalField) return null;
+    const points = aggregate(numberSourceRows, temporalField.name, numberField, numberAgg, "name");
+    return points.length >= 2 ? points.slice(-30) : null;
+  }, [readOnly, isNumber, numberMode, numberField, numberAgg, numberSourceRows, dims]);
+
   const drilledRows = useMemo(() => {
     if (!needsAgg || !drillPath.length) return rows;
     return rows.filter((r) => drillPath.every((val, i) => String(r[drillFields[i]] ?? "") === val));
@@ -264,6 +306,24 @@ export default function ChartCard({
   // Read-only + no custom title only — editor mode always shows the full displayTitle
   // unchanged, and a manually-set title is never shortened either way.
   const readOnlyLabel = readOnly && !hasCustomTitle ? shortenLabel(autoLabel) : null;
+
+  // Entry-animation tuning (item 1, public-view visual polish) — read-only only. In editor
+  // mode these props are omitted entirely (not set to `false`), so recharts falls back to
+  // whatever its own default animation behavior already is today, completely untouched.
+  // 400ms/ease-out keeps it snappy even though drill-down/rank clicks re-trigger it on every
+  // chartRows change (a new array reference from the useMemo above, which recharts treats as
+  // fresh entry data).
+  const entryAnim = readOnly ? { isAnimationActive: true, animationDuration: 400, animationEasing: "ease-out" } : {};
+  // Tooltip refinement (item 3) — same reasoning: omitted (undefined) in editor mode so its
+  // tooltip keeps recharts' current default look exactly as it renders today.
+  const tooltipContentStyle = readOnly
+    ? { borderRadius: 10, border: "1px solid var(--border-soft)", boxShadow: "0 4px 16px rgba(24, 27, 24, 0.12)", fontSize: 12, padding: "8px 10px" }
+    : undefined;
+  // Gradient bar fill (item 2) — only substitutes a per-color gradient url for the ACTIVE
+  // (non-dimmed) case in read-only; dimmed segments and editor mode both keep the exact flat
+  // segmentColor() fill used today. Gradient ids are scoped by chart.id so multiple cards on
+  // one dashboard never collide.
+  const barFill = (i, isDimmed) => (readOnly && !isDimmed ? `url(#bar-grad-${chart.id}-${i % SERIES.length})` : segmentColor(i, isDimmed));
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column" }}>
@@ -565,17 +625,50 @@ export default function ChartCard({
         </div>
       )}
 
-      <div style={{ padding: 12, minHeight: 240 }}>
+      <div className={readOnly ? "chart-viz-readonly" : undefined} style={{ padding: 12, minHeight: 240 }}>
         {type === "table" ? (
           <DataTable rows={rows} columns={sheet?.columns || []} />
         ) : isNumber ? (
-          <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div
+            style={
+              readOnly && numberSparkline
+                ? { minHeight: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4px 0" }
+                : { height: 220, display: "flex", alignItems: "center", justifyContent: "center" }
+            }
+          >
             {numberResult.error ? (
               <div className="mono" style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: "0 12px" }}>{numberResult.error}</div>
             ) : (
-              <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: "var(--ink)", textAlign: "center" }}>
-                {formatNumberValue(numberResult.value, { decimals, abbreviate, prefix, suffix })}
-              </div>
+              <>
+                <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: "var(--ink)", textAlign: "center" }}>
+                  {formatNumberValue(readOnly ? displayedNumberValue : numberResult.value, { decimals, abbreviate, prefix, suffix })}
+                </div>
+                {readOnly && numberSparkline && (
+                  <div style={{ width: "100%", maxWidth: 220, height: 36, marginTop: 10 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={numberSparkline} margin={{ top: 2, right: 2, left: 2, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id={`kpi-spark-grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#0B6E6E" stopOpacity={0.35} />
+                            <stop offset="100%" stopColor="#0B6E6E" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#0B6E6E"
+                          strokeWidth={1.5}
+                          fill={`url(#kpi-spark-grad-${chart.id})`}
+                          dot={false}
+                          isAnimationActive
+                          animationDuration={500}
+                          animationEasing="ease-out"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (!isOverallRatio && !currentField) || !yField || (needsAgg && agg === "ratio" && !yFieldDenominator) ? (
@@ -586,12 +679,22 @@ export default function ChartCard({
           <ResponsiveContainer width="100%" height={230}>
             {type === "bar" ? (
               <BarChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                {readOnly && (
+                  <defs>
+                    {SERIES.map((color, i) => (
+                      <linearGradient key={i} id={`bar-grad-${chart.id}-${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={color} stopOpacity={1} />
+                        <stop offset="100%" stopColor={color} stopOpacity={0.55} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                )}
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                <Tooltip formatter={(v) => fmtNum(v)} />
-                <Bar dataKey="value" radius={[3, 3, 0, 0]} onClick={(data) => handleSegmentClick(data?.payload ?? data)} cursor="pointer">
-                  {chartRows.map((r, i) => <Cell key={i} fill={segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue)} />)}
+                <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
+                <Bar dataKey="value" radius={[3, 3, 0, 0]} onClick={(data) => handleSegmentClick(data?.payload ?? data)} cursor="pointer" {...entryAnim}>
+                  {chartRows.map((r, i) => <Cell key={i} fill={barFill(i, hasSelectionMatch && r.name !== activeSelectionValue)} />)}
                 </Bar>
               </BarChart>
             ) : type === "line" ? (
@@ -599,7 +702,7 @@ export default function ChartCard({
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                <Tooltip formatter={(v) => fmtNum(v)} />
+                <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Line
                   type="monotone"
                   dataKey="value"
@@ -614,19 +717,28 @@ export default function ChartCard({
                       onDotClick={handleSegmentClick}
                     />
                   )}
+                  {...entryAnim}
                 />
               </LineChart>
             ) : type === "area" ? (
               <AreaChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                {readOnly && (
+                  <defs>
+                    <linearGradient id={`area-grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#0B6E6E" stopOpacity={0.45} />
+                      <stop offset="100%" stopColor="#0B6E6E" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                )}
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                <Tooltip formatter={(v) => fmtNum(v)} />
+                <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Area
                   type="monotone"
                   dataKey="value"
                   stroke="#0B6E6E"
-                  fill="#E2EFEC"
+                  fill={readOnly ? `url(#area-grad-${chart.id})` : "#E2EFEC"}
                   strokeWidth={2}
                   dot={(dotProps) => (
                     <ClickableDot
@@ -637,11 +749,12 @@ export default function ChartCard({
                       onDotClick={handleSegmentClick}
                     />
                   )}
+                  {...entryAnim}
                 />
               </AreaChart>
             ) : type === "pie" ? (
               <PieChart>
-                <Tooltip formatter={(v) => (isOverallRatio ? `${v}%` : fmtNum(v))} />
+                <Tooltip formatter={(v) => (isOverallRatio ? `${v}%` : fmtNum(v))} contentStyle={tooltipContentStyle} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Pie
                   data={chartRows}
@@ -652,6 +765,7 @@ export default function ChartCard({
                   label={isOverallRatio ? renderOverallRatioLabel : { fontSize: 10 }}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
                   cursor={isOverallRatio ? "default" : "pointer"}
+                  {...entryAnim}
                 >
                   {chartRows.map((r, i) => (
                     <Cell
@@ -666,7 +780,7 @@ export default function ChartCard({
                 <CartesianGrid stroke="var(--paper-line)" />
                 <XAxis dataKey="x" name={xField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
                 <YAxis dataKey="y" name={yField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                <Tooltip formatter={(v) => fmtNum(v)} />
+                <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Scatter data={scatterRows} fill="#A8492F" />
               </ScatterChart>
             )}

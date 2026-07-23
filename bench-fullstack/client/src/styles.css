@@ -64,6 +64,31 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
   transform: translateY(-1px);
 }
 
+/* ChartCard read-only-view hover polish. Scoped entirely under .chart-viz-readonly (only
+   applied to ChartCard's chart-content wrapper when readOnly is true) so none of this ever
+   matches inside the authenticated editor's identical chart markup. */
+.chart-viz-readonly .recharts-bar-rectangle path,
+.chart-viz-readonly .recharts-bar-rectangle rect {
+  transition: filter 0.15s ease;
+}
+.chart-viz-readonly .recharts-bar-rectangle:hover path,
+.chart-viz-readonly .recharts-bar-rectangle:hover rect {
+  filter: brightness(1.12);
+}
+.chart-viz-readonly .clickable-dot {
+  transition: filter 0.15s ease, r 0.15s ease;
+}
+.chart-viz-readonly .clickable-dot:hover {
+  filter: brightness(1.25);
+  r: 7;
+}
+.chart-viz-readonly table tbody tr {
+  transition: background 0.1s ease;
+}
+.chart-viz-readonly table tbody tr:hover {
+  background: var(--teal-soft) !important;
+}
+
 .chart-grid {
   display: grid;
   gap: 12px;
