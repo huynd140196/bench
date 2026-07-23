@@ -27,12 +27,15 @@ function getDashboard(req, res) {
     }));
   const sheetIds = [...new Set(charts.map((c) => c.sheet_id))];
   const sheets = sheetIds
-    .map((id) => db.prepare("SELECT id, name, columns_json, rows_json, calculated_fields_json FROM sheets WHERE id = ?").get(id))
+    .map((id) => db.prepare("SELECT id, name, columns_json, rows_json, calculated_fields_json, source_type, updated_at FROM sheets WHERE id = ?").get(id))
     .filter(Boolean)
     .map((s) => {
       const calculatedFields = JSON.parse(s.calculated_fields_json || "[]");
       const { columns, rows } = withCalculatedFields(JSON.parse(s.columns_json), JSON.parse(s.rows_json), calculatedFields);
-      return { id: s.id, name: s.name, columns, rows };
+      // sourceType/updatedAt: same camelCase convention listSheets() already uses (sheets.js) —
+      // lets the read-only dashboard view show a "data as of" freshness note for Google-Sheets-
+      // sourced charts, since a dashboard's own updated_at only reflects config changes.
+      return { id: s.id, name: s.name, columns, rows, sourceType: s.source_type, updatedAt: s.updated_at };
     });
   res.json({ dashboard: { ...dash, filters: JSON.parse(dash.filters_json) }, charts, sheets });
 }
@@ -74,8 +77,13 @@ export const publicDashboardRouter = Router();
 // workspace. No auth, no membership check — same public-by-default reasoning as the
 // per-workspace dashboard list/get routes above.
 publicDashboardRouter.get("/", optionalAuth, (req, res) => {
+  // first_chart_type: a correlated scalar subquery, not a JOIN — a JOIN against charts would
+  // duplicate each dashboard row per matching chart; this stays exactly one row per dashboard
+  // and one query overall (no per-card round trip) for a cheap static chart-type icon on the
+  // Home.jsx gallery card, rather than fetching/aggregating real row data per dashboard.
   const rows = db.prepare(`
-    SELECT w.id AS workspace_id, w.name AS workspace_name, d.id, d.name, d.updated_at
+    SELECT w.id AS workspace_id, w.name AS workspace_name, d.id, d.name, d.updated_at,
+      (SELECT type FROM charts WHERE dashboard_id = d.id ORDER BY sort_order LIMIT 1) AS first_chart_type
     FROM dashboards d
     JOIN workspaces w ON w.id = d.workspace_id
     ORDER BY w.name COLLATE NOCASE, d.updated_at DESC
@@ -86,7 +94,7 @@ publicDashboardRouter.get("/", optionalAuth, (req, res) => {
     if (!byWorkspace.has(r.workspace_id)) {
       byWorkspace.set(r.workspace_id, { workspaceId: r.workspace_id, workspaceName: r.workspace_name, dashboards: [] });
     }
-    byWorkspace.get(r.workspace_id).dashboards.push({ id: r.id, name: r.name, updated_at: r.updated_at });
+    byWorkspace.get(r.workspace_id).dashboards.push({ id: r.id, name: r.name, updated_at: r.updated_at, firstChartType: r.first_chart_type });
   }
   res.json({ workspaces: [...byWorkspace.values()] });
 });

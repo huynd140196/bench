@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import { api } from "../api";
+import { timeAgo } from "../utils";
 import DashboardCharts from "../components/DashboardCharts";
+import DashboardSkeleton from "../components/DashboardSkeleton";
 
 // Public, always read-only: reachable by anyone (including logged-out visitors) via the
 // dashboard's own id — no token, no login, no workspace membership required. Click-to-select
@@ -19,7 +21,7 @@ export default function SharedDashboard() {
   }, [dashboardId]);
 
   if (error) return <div style={{ padding: 40, textAlign: "center" }} className="mono">{error}</div>;
-  if (!data) return null;
+  if (!data) return <DashboardSkeleton />;
 
   const sheetsById = Object.fromEntries(data.sheets.map((s) => [s.id, s]));
   const filters = data.dashboard.filters || {};
@@ -28,6 +30,7 @@ export default function SharedDashboard() {
     <div style={{ padding: "20px 16px" }}>
       <div className="mono" style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 4 }}>Read-only dashboard</div>
       <h1 style={{ fontSize: 20, fontWeight: 700 }}>{data.dashboard.name}</h1>
+      <div className="mono" style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 2 }}>updated {timeAgo(data.dashboard.updated_at)}</div>
       {selection && (
         <button
           onClick={() => setSelection(null)}

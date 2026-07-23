@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Plus, Filter, Copy, Check, X } from "lucide-react";
 import { api } from "../api";
 import DashboardCharts from "../components/DashboardCharts";
+import DashboardSkeleton from "../components/DashboardSkeleton";
 
 // Anyone can view a dashboard at this route; only the original creator (dashboard.created_by)
 // sees/uses the edit controls below. Everyone else gets the same read-only view SharedDashboard.jsx renders.
@@ -108,7 +109,7 @@ export default function Dashboard({ user }) {
 
   const sheetsUsed = useMemo(() => [...new Set(charts.map((c) => c.sheet_id))].map((id) => sheetsById[id]).filter(Boolean), [charts, sheetsById]);
 
-  if (!dashboard) return null;
+  if (!dashboard) return <DashboardSkeleton />;
 
   return (
     <div style={{ padding: "20px 16px" }}>

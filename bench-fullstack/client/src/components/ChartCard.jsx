@@ -9,8 +9,23 @@ import {
 } from "lucide-react";
 import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, DIM_COLOR } from "./charting";
 import { evaluateKpiFormula } from "./kpiFormula";
+import { timeAgo } from "../utils";
 
-const CHART_TYPES = [
+// Read-only-only shortening for the auto-generated summary label (e.g.
+// "sum(Số thiết bị) by Category" -> "sum(Số thiết bị) b…"). Flat character-limit truncation
+// rather than a type-specific rule (e.g. "just show the metric name") since it applies
+// uniformly across every chart type (bar/line/pie/ratio/number/table all produce differently
+// shaped autoLabel strings) without needing a bespoke rule per shape. The full string is
+// always still available via the native `title` tooltip. A manually-set chart.title is
+// unaffected either way — this only ever shortens the auto-generated fallback.
+const READONLY_LABEL_LIMIT = 20;
+function shortenLabel(label) {
+  return label.length > READONLY_LABEL_LIMIT ? `${label.slice(0, READONLY_LABEL_LIMIT).trimEnd()}…` : label;
+}
+
+// Exported so Home.jsx's gallery cards can reuse the exact same chart-type icon set for
+// their static per-dashboard preview icon, rather than duplicating this list.
+export const CHART_TYPES = [
   { id: "bar", label: "Bar", icon: BarChart3 },
   { id: "line", label: "Line", icon: TrendingUp },
   { id: "area", label: "Area", icon: TrendingUp },
@@ -244,7 +259,11 @@ export default function ChartCard({
         : `${yField || "—"} / ${yFieldDenominator || "—"}${rankSuffix} by ${currentField || "—"}`)
       : `${agg}(${yField || "—"})${rankSuffix} by ${currentField || "—"}`)
     : `${xField || "—"} vs ${yField || "—"}`;
-  const displayTitle = chart.title && chart.title.trim() ? chart.title : autoLabel;
+  const hasCustomTitle = !!(chart.title && chart.title.trim());
+  const displayTitle = hasCustomTitle ? chart.title : autoLabel;
+  // Read-only + no custom title only — editor mode always shows the full displayTitle
+  // unchanged, and a manually-set title is never shortened either way.
+  const readOnlyLabel = readOnly && !hasCustomTitle ? shortenLabel(autoLabel) : null;
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column" }}>
@@ -267,8 +286,21 @@ export default function ChartCard({
               style={{ fontSize: 12, padding: "2px 4px", minWidth: 120 }}
             />
           ) : (
-            <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {displayTitle}
+            <span
+              className="mono"
+              title={readOnlyLabel ? autoLabel : undefined}
+              style={{ fontSize: 12, color: "var(--ink-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {readOnlyLabel || displayTitle}
+            </span>
+          )}
+          {readOnly && sheet?.sourceType === "google_sheets" && (
+            <span
+              className="mono"
+              title={`Sheet data last refreshed ${sheet.updatedAt}`}
+              style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap" }}
+            >
+              · data as of {timeAgo(sheet.updatedAt)}
             </span>
           )}
           {!readOnly && !editingTitle && (

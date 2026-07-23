@@ -46,6 +46,24 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.9s linear infinite; }
 
+@keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.skeleton-block {
+  background: var(--border-soft);
+  border-radius: 6px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* Home.jsx gallery cards only — deliberately not on the shared .card class, so this never
+   touches ChartCard, Workspace(s) cards, or any other .card usage in the app. */
+.home-dash-card {
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.home-dash-card:hover {
+  box-shadow: 0 4px 14px rgba(24, 27, 24, 0.08);
+  border-color: var(--teal);
+  transform: translateY(-1px);
+}
+
 .chart-grid {
   display: grid;
   gap: 12px;

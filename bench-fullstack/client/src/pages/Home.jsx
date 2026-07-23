@@ -2,11 +2,33 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LayoutGrid, User, LogIn, LogOut } from "lucide-react";
 import { api, setToken } from "../api";
+import { timeAgo } from "../utils";
+import { CHART_TYPES } from "../components/ChartCard";
 
 // Public homepage: every dashboard, site-wide, grouped by workspace. No login required to
 // view or navigate any of it. The corner control shows "Log in" when logged out (linking to
 // the regular /login page only — never the hidden admin login path) or "My workspaces" +
 // "Log out" when a session exists. Signup stays unadvertised: this page never links to /signup.
+// Generic placeholder shape (workspace heading + a row of card placeholders) shown while
+// GET /dashboards is in flight — the real number/size of groups isn't known yet, so this
+// isn't trying to mirror actual data, just avoid a blank page during the fetch.
+function HomeSkeleton() {
+  return (
+    <>
+      {[0, 1].map((g) => (
+        <section key={g} style={{ marginTop: 32 }}>
+          <div className="skeleton-block" style={{ width: 140, height: 13, marginBottom: 10 }} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton-block card" style={{ height: 46 }} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
 export default function Home({ onLogout }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -59,22 +81,35 @@ export default function Home({ onLogout }) {
         ))}
       </div>
 
+      {data === null && <HomeSkeleton />}
+
       {data && data.workspaces.map((ws) => (
         <section key={ws.workspaceId} style={{ marginTop: 32 }}>
           <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.3 }}>
             {ws.workspaceName}
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            {ws.dashboards.map((d) => (
-              <Link
-                key={d.id}
-                to={`/workspaces/${ws.workspaceId}/dashboards/${d.id}`}
-                className="card"
-                style={{ padding: 14, textDecoration: "none", color: "var(--ink)", fontSize: 13, fontWeight: 500, display: "block" }}
-              >
-                {d.name}
-              </Link>
-            ))}
+            {ws.dashboards.map((d) => {
+              // No chart yet (firstChartType null, e.g. a brand-new dashboard) -> no icon at
+              // all, rather than a placeholder implying a chart type that doesn't exist.
+              const ChartIcon = (CHART_TYPES.find((t) => t.id === d.firstChartType) || {}).icon;
+              return (
+                <Link
+                  key={d.id}
+                  to={`/workspaces/${ws.workspaceId}/dashboards/${d.id}`}
+                  className="card home-dash-card"
+                  style={{ padding: 14, textDecoration: "none", color: "var(--ink)", fontSize: 13, fontWeight: 500, display: "block" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {ChartIcon && <ChartIcon size={13} color="var(--teal)" style={{ flexShrink: 0 }} />}
+                    <span>{d.name}</span>
+                  </div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: 4, fontWeight: 400 }}>
+                    updated {timeAgo(d.updated_at)}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
       ))}
