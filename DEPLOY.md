@@ -62,8 +62,8 @@ cd bench
 **Server config** — copy the example and fill in real values:
 
 ```bash
-cp server/.env.example server/.env
-nano server/.env   # or your editor of choice
+cp bench-fullstack/server/.env.example bench-fullstack/server/.env
+nano bench-fullstack/server/.env   # or your editor of choice
 ```
 
 - `JWT_SECRET` — generate a real one: `openssl rand -hex 32`, paste the output in.
@@ -77,12 +77,12 @@ nano server/.env   # or your editor of choice
   production, so CORS is skipped entirely) — fine to leave as-is or delete.
 
 **Client config** — the admin login path also has to be baked into the client build, and
-has to match `server/.env` exactly. `client/.env.production` (committed to the repo,
-non-secret) already sets `VITE_API_URL=/api`; create `client/.env` alongside it for the
-one value that *is* secret:
+has to match `bench-fullstack/server/.env` exactly. `bench-fullstack/client/.env.production`
+(committed to the repo, non-secret) already sets `VITE_API_URL=/api`; create
+`bench-fullstack/client/.env` alongside it for the one value that *is* secret:
 
 ```bash
-echo 'VITE_ADMIN_LOGIN_PATH=<the exact same slug you put in server/.env>' > client/.env
+echo 'VITE_ADMIN_LOGIN_PATH=<the exact same slug you put in bench-fullstack/server/.env>' > bench-fullstack/client/.env
 ```
 
 ## 5. First build
@@ -93,12 +93,13 @@ From the repo root:
 npm run build
 ```
 
-This runs `cd client && npm install && npm run build`, producing `client/dist`. On an
-e2-micro this can take a few minutes and lean on the swap space from step 1 — that's
-expected, let it finish. You also need the server's own dependencies:
+This runs `cd bench-fullstack/client && npm install && npm run build`, producing
+`bench-fullstack/client/dist`. On an e2-micro this can take a few minutes and lean on the
+swap space from step 1 — that's expected, let it finish. You also need the server's own
+dependencies:
 
 ```bash
-cd server && npm install && cd ..
+cd bench-fullstack/server && npm install && cd ../..
 ```
 
 ## 6. Start it with PM2
@@ -119,7 +120,7 @@ Quick check it's actually serving:
 
 ```bash
 curl http://localhost:4000/api/health   # {"ok":true}
-curl -I http://localhost:4000/          # 200, serving client/dist/index.html
+curl -I http://localhost:4000/          # 200, serving bench-fullstack/client/dist/index.html
 ```
 
 ## 7. Create the admin account
@@ -132,10 +133,10 @@ pm2 logs bench --lines 50 --nostream | grep "bootstrap invite code"
 ```
 
 Visit `http://<VM-external-IP>/signup`, use that code to create your own account, then
-go back and finish `server/.env`:
+go back and finish `bench-fullstack/server/.env`:
 
 ```bash
-nano server/.env   # uncomment ADMIN_EMAIL and set it to the email you just signed up with
+nano bench-fullstack/server/.env   # uncomment ADMIN_EMAIL and set it to the email you just signed up with
 pm2 restart bench
 ```
 
