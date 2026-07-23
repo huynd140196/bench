@@ -82,12 +82,40 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
   filter: brightness(1.25);
   r: 7;
 }
+.chart-viz-readonly .recharts-scatter-symbol {
+  transition: filter 0.15s ease;
+}
+.chart-viz-readonly .recharts-scatter-symbol:hover {
+  filter: brightness(1.2);
+}
 .chart-viz-readonly table tbody tr {
   transition: background 0.1s ease;
 }
 .chart-viz-readonly table tbody tr:hover {
   background: var(--teal-soft) !important;
 }
+
+/* Pie "spin to a stop" entry effect, layered on top of recharts' own slice-sweep animation
+   (see ChartCard.jsx). transform-box: fill-box makes 50% 50% resolve against the pie's own
+   rendered bounding box rather than the SVG viewport's origin — without it the whole pie
+   would swing off-center instead of spinning in place. Two classes with identical keyframes
+   but different names/animation targets, so ChartCard.jsx can alternate between them to
+   force the browser to restart the animation on every data change without remounting <Pie>. */
+.chart-viz-readonly .pie-spin-a,
+.chart-viz-readonly .pie-spin-b {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+@keyframes pie-spin-a-kf {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes pie-spin-b-kf {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.chart-viz-readonly .pie-spin-a { animation: pie-spin-a-kf 500ms ease-out; }
+.chart-viz-readonly .pie-spin-b { animation: pie-spin-b-kf 500ms ease-out; }
 
 .chart-grid {
   display: grid;

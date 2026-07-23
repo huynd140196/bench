@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -257,6 +257,36 @@ export default function ChartCard({
     return rows.slice(0, 400).map((r) => ({ x: Number(r[xField]) || 0, y: Number(r[yField]) || 0 }));
   }, [rows, type, xField, yField]);
 
+  // Pie "spin to a stop" (read-only only), layered on top of recharts' own slice-sweep
+  // animation rather than replacing it. Recharts' <Pie> already restarts ITS OWN animation
+  // on every data change via its own internal animationId/updateId tracking (confirmed in
+  // recharts' source — no external help needed for that part). But a CSS @keyframes
+  // animation only plays once per element unless something forces a restart, and forcing
+  // that via a changing `key` on <Pie> would fully unmount/remount it — which would also
+  // reset recharts' own animation state on every restart (hard restart-from-empty instead
+  // of its normal soft re-interpolation), which is closer to "interfering with" the existing
+  // animation than "layering on top" of it. Instead: alternate between two classes with
+  // IDENTICAL @keyframes but different names on every chartRows CONTENT change. A changed
+  // animation-name is enough for the browser to restart the animation fresh, with zero
+  // effect on <Pie>'s own mount/lifecycle or its internal animation.
+  //
+  // Keyed on a content-derived string, not the raw chartRows array reference: recharts' own
+  // bar/line/area/scatter animations transition FROM the current rendered state TO the new
+  // one, so a reference-only change with identical underlying values (e.g. React StrictMode's
+  // dev-only double-invoke of the dashboard's data-fetch effect, which produces two separately-
+  // parsed-but-content-identical row arrays) is invisible there — nothing to interpolate. This
+  // CSS toggle has no such built-in immunity (a rotation always visibly restarts on any
+  // reference change, regardless of whether the destination values differ), so it needs to
+  // check content equality itself rather than trusting reference identity.
+  const pieContentKey = useMemo(() => chartRows.map((r) => `${r.name}:${r.value}`).join("|"), [chartRows]);
+  const [pieSpinToggle, setPieSpinToggle] = useState(false);
+  const pieSpinMounted = useRef(false);
+  useEffect(() => {
+    if (!readOnly || type !== "pie") return;
+    if (!pieSpinMounted.current) { pieSpinMounted.current = true; return; }
+    setPieSpinToggle((t) => !t);
+  }, [readOnly, type, pieContentKey]);
+
   // Only dim other segments when the active selection's value actually matches a segment
   // in the CURRENT view — otherwise (e.g. right after drilling a level deeper) nothing
   // would match and every segment would render as dimmed.
@@ -307,12 +337,15 @@ export default function ChartCard({
   // unchanged, and a manually-set title is never shortened either way.
   const readOnlyLabel = readOnly && !hasCustomTitle ? shortenLabel(autoLabel) : null;
 
-  // Entry-animation tuning (item 1, public-view visual polish) — read-only only. In editor
-  // mode these props are omitted entirely (not set to `false`), so recharts falls back to
-  // whatever its own default animation behavior already is today, completely untouched.
-  // 400ms/ease-out keeps it snappy even though drill-down/rank clicks re-trigger it on every
-  // chartRows change (a new array reference from the useMemo above, which recharts treats as
-  // fresh entry data).
+  // Entry-animation tuning (item 1, public-view visual polish) — read-only only, shared by
+  // bar/line/area/pie/scatter. In editor mode these props are omitted entirely (not set to
+  // `false`), so recharts falls back to whatever its own default animation behavior already is
+  // today, completely untouched — this matters for Scatter specifically, since recharts
+  // animates it by default too (isAnimationActive: true, 400ms, but 'linear' easing); leaving
+  // editor's props unset preserves that exact default rather than risking a mismatch by trying
+  // to hardcode it. 400ms/ease-out keeps it snappy even though drill-down/rank clicks re-trigger
+  // it on every chartRows/scatterRows change (a new array reference from the useMemo above,
+  // which recharts treats as fresh entry data).
   const entryAnim = readOnly ? { isAnimationActive: true, animationDuration: 400, animationEasing: "ease-out" } : {};
   // Tooltip refinement (item 3) — same reasoning: omitted (undefined) in editor mode so its
   // tooltip keeps recharts' current default look exactly as it renders today.
@@ -765,6 +798,7 @@ export default function ChartCard({
                   label={isOverallRatio ? renderOverallRatioLabel : { fontSize: 10 }}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
                   cursor={isOverallRatio ? "default" : "pointer"}
+                  className={readOnly ? (pieSpinToggle ? "pie-spin-b" : "pie-spin-a") : undefined}
                   {...entryAnim}
                 >
                   {chartRows.map((r, i) => (
@@ -781,7 +815,7 @@ export default function ChartCard({
                 <XAxis dataKey="x" name={xField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
                 <YAxis dataKey="y" name={yField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
-                <Scatter data={scatterRows} fill="#A8492F" />
+                <Scatter data={scatterRows} fill="#A8492F" {...entryAnim} />
               </ScatterChart>
             )}
           </ResponsiveContainer>
