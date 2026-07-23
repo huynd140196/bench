@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -257,35 +257,53 @@ export default function ChartCard({
     return rows.slice(0, 400).map((r) => ({ x: Number(r[xField]) || 0, y: Number(r[yField]) || 0 }));
   }, [rows, type, xField, yField]);
 
-  // Pie "spin to a stop" (read-only only), layered on top of recharts' own slice-sweep
-  // animation rather than replacing it. Recharts' <Pie> already restarts ITS OWN animation
-  // on every data change via its own internal animationId/updateId tracking (confirmed in
-  // recharts' source — no external help needed for that part). But a CSS @keyframes
-  // animation only plays once per element unless something forces a restart, and forcing
-  // that via a changing `key` on <Pie> would fully unmount/remount it — which would also
-  // reset recharts' own animation state on every restart (hard restart-from-empty instead
-  // of its normal soft re-interpolation), which is closer to "interfering with" the existing
-  // animation than "layering on top" of it. Instead: alternate between two classes with
-  // IDENTICAL @keyframes but different names on every chartRows CONTENT change. A changed
-  // animation-name is enough for the browser to restart the animation fresh, with zero
-  // effect on <Pie>'s own mount/lifecycle or its internal animation.
+  // Pie "staggered slice reveal" (read-only only): slices are appended into the displayed
+  // data one at a time on a short timer, instead of animating the whole pie in as one combined
+  // sweep. Confirmed via recharts' Pie.js source: <Pie>'s internal Animate only refreshes what
+  // it interpolates FROM (prevSectors -> curSectors, in getDerivedStateFromProps) when its
+  // `animationId` prop changes — not merely when `data`/`sectors` changes. So just growing the
+  // data array on a timer, without also bumping animationId per step, would NOT animate each
+  // appended slice: Animate's key wouldn't change, it wouldn't remount, and it would keep
+  // rendering at whatever `t` it already settled at (≈1 after the initial mount animation) —
+  // so every newly-appended slice would pop in at full size instantly instead of growing in.
+  // Bumping animationId once per revealed slice forces a fresh 0->1 tween each step: the new
+  // slice (no prevSectors entry at its index yet) grows from 0, while already-revealed slices
+  // (which DO have a prevSectors entry) just get a small natural re-interpolation as their
+  // share of the total shifts slightly — not a restart from scratch.
   //
-  // Keyed on a content-derived string, not the raw chartRows array reference: recharts' own
-  // bar/line/area/scatter animations transition FROM the current rendered state TO the new
-  // one, so a reference-only change with identical underlying values (e.g. React StrictMode's
-  // dev-only double-invoke of the dashboard's data-fetch effect, which produces two separately-
-  // parsed-but-content-identical row arrays) is invisible there — nothing to interpolate. This
-  // CSS toggle has no such built-in immunity (a rotation always visibly restarts on any
-  // reference change, regardless of whether the destination values differ), so it needs to
-  // check content equality itself rather than trusting reference identity.
+  // Keyed on pieContentKey (content-derived), not the raw chartRows reference, for the same
+  // reason established for the previous spin implementation: a reference-only change with
+  // identical underlying values (e.g. React StrictMode's dev-only double-invoke of the
+  // dashboard's data-fetch effect) must not restart the reveal sequence.
   const pieContentKey = useMemo(() => chartRows.map((r) => `${r.name}:${r.value}`).join("|"), [chartRows]);
-  const [pieSpinToggle, setPieSpinToggle] = useState(false);
-  const pieSpinMounted = useRef(false);
-  useEffect(() => {
-    if (!readOnly || type !== "pie") return;
-    if (!pieSpinMounted.current) { pieSpinMounted.current = true; return; }
-    setPieSpinToggle((t) => !t);
+  const PIE_REVEAL_BUDGET_MS = 450;
+  const PIE_REVEAL_MIN_STEP_MS = 25;
+  const PIE_REVEAL_MAX_STEP_MS = 90;
+  const [pieRevealCount, setPieRevealCount] = useState(0);
+  const [pieAnimId, setPieAnimId] = useState(0);
+  const pieAnimIdRef = useRef(0);
+  // useLayoutEffect (not useEffect): the reset to 1 revealed slice must land before the browser
+  // paints, otherwise the first frame would briefly render zero slices (Pie renders null when
+  // its data array is empty).
+  useLayoutEffect(() => {
+    if (!readOnly || type !== "pie") return undefined;
+    const total = chartRows.length;
+    if (total === 0) { setPieRevealCount(0); return undefined; }
+    const stepMs = Math.max(PIE_REVEAL_MIN_STEP_MS, Math.min(PIE_REVEAL_MAX_STEP_MS, PIE_REVEAL_BUDGET_MS / Math.max(1, total - 1)));
+    pieAnimIdRef.current += 1;
+    setPieRevealCount(1);
+    setPieAnimId(pieAnimIdRef.current);
+    const timers = [];
+    for (let i = 2; i <= total; i++) {
+      timers.push(setTimeout(() => {
+        pieAnimIdRef.current += 1;
+        setPieRevealCount(i);
+        setPieAnimId(pieAnimIdRef.current);
+      }, stepMs * (i - 1)));
+    }
+    return () => timers.forEach(clearTimeout);
   }, [readOnly, type, pieContentKey]);
+  const pieDisplayRows = readOnly && type === "pie" ? chartRows.slice(0, pieRevealCount) : chartRows;
 
   // Only dim other segments when the active selection's value actually matches a segment
   // in the CURRENT view — otherwise (e.g. right after drilling a level deeper) nothing
@@ -790,7 +808,7 @@ export default function ChartCard({
                 <Tooltip formatter={(v) => (isOverallRatio ? `${v}%` : fmtNum(v))} contentStyle={tooltipContentStyle} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Pie
-                  data={chartRows}
+                  data={pieDisplayRows}
                   dataKey="value"
                   nameKey="name"
                   innerRadius={isOverallRatio ? 55 : 0}
@@ -798,10 +816,10 @@ export default function ChartCard({
                   label={isOverallRatio ? renderOverallRatioLabel : { fontSize: 10 }}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
                   cursor={isOverallRatio ? "default" : "pointer"}
-                  className={readOnly ? (pieSpinToggle ? "pie-spin-b" : "pie-spin-a") : undefined}
                   {...entryAnim}
+                  {...(readOnly ? { animationId: pieAnimId, animationDuration: 240 } : {})}
                 >
-                  {chartRows.map((r, i) => (
+                  {pieDisplayRows.map((r, i) => (
                     <Cell
                       key={i}
                       fill={isOverallRatio ? (r.name === "Remainder" ? DIM_COLOR : segmentColor(0, false)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue)}
