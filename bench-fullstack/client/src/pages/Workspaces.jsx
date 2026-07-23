@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, LayoutGrid } from "lucide-react";
-import { api } from "../api";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, LayoutGrid, LogOut } from "lucide-react";
+import { api, setToken } from "../api";
 
 // No link to /admin anywhere on this page (or Home.jsx) — reachable only by direct URL,
 // same "no link, just gated by is_admin" pattern as the hidden admin login path itself.
-export default function Workspaces() {
+export default function Workspaces({ onLogout }) {
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -26,11 +27,26 @@ export default function Workspaces() {
     }
   };
 
+  const logout = () => {
+    setToken(null);
+    onLogout();
+    navigate("/login");
+  };
+
   return (
     <div style={{ maxWidth: 720, margin: "40px auto", padding: "0 16px" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-        <LayoutGrid size={20} color="var(--teal)" /> Workspaces
-      </h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+          <LayoutGrid size={20} color="var(--teal)" /> Workspaces
+        </h1>
+        <button
+          className="mono"
+          onClick={logout}
+          style={{ fontSize: 12, color: "var(--ink-faint)", display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+        >
+          <LogOut size={13} /> Log out
+        </button>
+      </div>
 
       <form onSubmit={create} style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <input type="text" placeholder="New workspace name" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />

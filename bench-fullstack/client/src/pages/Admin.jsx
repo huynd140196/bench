@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { ShieldCheck, Copy, Check, Trash2, LayoutGrid, TriangleAlert } from "lucide-react";
-import { api } from "../api";
+import { Link, useNavigate } from "react-router-dom";
+import { ShieldCheck, Copy, Check, Trash2, LayoutGrid, TriangleAlert, LogOut } from "lucide-react";
+import { api, setToken } from "../api";
 
 // Reachable only by direct URL (no link from Home.jsx or Workspaces.jsx) and gated by
 // is_admin both client-side (App.jsx's RequireAdmin) and server-side (requireAdmin on
 // every endpoint this page calls) — same belt-and-suspenders pattern as invite-gated signup.
-export default function Admin({ user }) {
+export default function Admin({ user, onLogout }) {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [dashboardRows, setDashboardRows] = useState([]);
@@ -92,11 +93,26 @@ export default function Admin({ user }) {
     }
   };
 
+  const logout = () => {
+    setToken(null);
+    onLogout();
+    navigate("/login");
+  };
+
   return (
     <div style={{ maxWidth: 720, margin: "40px auto", padding: "0 16px" }}>
-      <h1 style={{ fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-        <ShieldCheck size={18} color="var(--teal)" /> Admin
-      </h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+          <ShieldCheck size={18} color="var(--teal)" /> Admin
+        </h1>
+        <button
+          className="mono"
+          onClick={logout}
+          style={{ fontSize: 12, color: "var(--ink-faint)", display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+        >
+          <LogOut size={13} /> Log out
+        </button>
+      </div>
 
       <section style={{ marginTop: 24 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Generate invite code</h2>

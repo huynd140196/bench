@@ -38,17 +38,25 @@ export default function App() {
     });
   }, []);
 
+  // Single source of truth for clearing a session: pages call this (rather than just
+  // setToken(null) on their own) so App's user state drops too — otherwise RequireAuth/
+  // RequireAdmin would keep gating on a stale truthy user until the next full api.me() check.
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+  };
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Home onLogout={logout} />} />
         <Route path="/login" element={<Login onAuthed={setUser} />} />
         <Route path="/signup" element={<Signup onAuthed={setUser} />} />
         <Route path="/dashboards/:dashboardId" element={<SharedDashboard />} />
-        <Route path="/workspaces" element={<RequireAuth user={user}><Workspaces user={user} /></RequireAuth>} />
+        <Route path="/workspaces" element={<RequireAuth user={user}><Workspaces user={user} onLogout={logout} /></RequireAuth>} />
         <Route path="/workspaces/:workspaceId" element={<RequireAuth user={user}><Workspace user={user} /></RequireAuth>} />
         <Route path="/workspaces/:workspaceId/dashboards/:dashboardId" element={<Dashboard user={user} />} />
-        <Route path="/admin" element={<RequireAdmin user={user}><Admin user={user} /></RequireAdmin>} />
+        <Route path="/admin" element={<RequireAdmin user={user}><Admin user={user} onLogout={logout} /></RequireAdmin>} />
         {ADMIN_LOGIN_PATH && <Route path={`/${ADMIN_LOGIN_PATH}`} element={<AdminLogin onAuthed={setUser} />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
