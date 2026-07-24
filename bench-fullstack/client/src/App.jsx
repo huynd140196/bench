@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { api, setToken } from "./api";
+import { ThemeProvider } from "./ThemeContext";
+import ThemeToggle from "./components/ThemeToggle";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -47,19 +49,22 @@ export default function App() {
   };
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home onLogout={logout} />} />
-        <Route path="/login" element={<Login onAuthed={setUser} />} />
-        <Route path="/signup" element={<Signup onAuthed={setUser} />} />
-        <Route path="/dashboards/:dashboardId" element={<SharedDashboard />} />
-        <Route path="/workspaces" element={<RequireAuth user={user}><Workspaces user={user} onLogout={logout} /></RequireAuth>} />
-        <Route path="/workspaces/:workspaceId" element={<RequireAuth user={user}><Workspace user={user} /></RequireAuth>} />
-        <Route path="/workspaces/:workspaceId/dashboards/:dashboardId" element={<Dashboard user={user} />} />
-        <Route path="/admin" element={<RequireAdmin user={user}><Admin user={user} onLogout={logout} /></RequireAdmin>} />
-        {ADMIN_LOGIN_PATH && <Route path={`/${ADMIN_LOGIN_PATH}`} element={<AdminLogin onAuthed={setUser} />} />}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <ThemeToggle />
+        <Routes>
+          <Route path="/" element={<Home onLogout={logout} />} />
+          <Route path="/login" element={<Login onAuthed={setUser} />} />
+          <Route path="/signup" element={<Signup onAuthed={setUser} />} />
+          <Route path="/dashboards/:dashboardId" element={<SharedDashboard />} />
+          <Route path="/workspaces" element={<RequireAuth user={user}><Workspaces user={user} onLogout={logout} /></RequireAuth>} />
+          <Route path="/workspaces/:workspaceId" element={<RequireAuth user={user}><Workspace user={user} /></RequireAuth>} />
+          <Route path="/workspaces/:workspaceId/dashboards/:dashboardId" element={<Dashboard user={user} />} />
+          <Route path="/admin" element={<RequireAdmin user={user}><Admin user={user} onLogout={logout} /></RequireAdmin>} />
+          {ADMIN_LOGIN_PATH && <Route path={`/${ADMIN_LOGIN_PATH}`} element={<AdminLogin onAuthed={setUser} />} />}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }

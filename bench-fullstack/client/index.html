@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bench</title>
+    <script>
+      // Reads the persisted theme choice before React mounts (and before first paint) so
+      // dark-mode users never see a flash of the light theme. Mirrored by ThemeContext.jsx,
+      // which keeps this same attribute in sync as the source of truth after mount.
+      if (localStorage.getItem("bench_theme") === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

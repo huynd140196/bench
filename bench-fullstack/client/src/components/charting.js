@@ -118,14 +118,11 @@ export function fmtNum(n) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-export const SERIES = ["#0B6E6E", "#B9791C", "#5C4A7A", "#3D6B8C", "#A8492F", "#5C8A5C", "#8A5C6E"];
-
-// Muted color for segments dimmed by an active click-to-select highlight (part 4a).
-export const DIM_COLOR = "#C7C4B5";
-
-// Fill for a bar/pie segment at `index`, given whether a selection is active elsewhere
-// in the same chart. Selected segment (or "no selection at all") keeps its normal color;
-// every other segment when a selection IS active gets muted.
-export function segmentColor(index, isDimmed) {
-  return isDimmed ? DIM_COLOR : SERIES[index % SERIES.length];
+// Fill for a bar/pie segment at `index`, given whether a selection is active elsewhere in the
+// same chart, and the current theme's chart palette (see chartTheme.js — kept out of this
+// file so charting.js stays framework-agnostic, no React/theme import here). Selected segment
+// (or "no selection at all") keeps its normal color; every other segment when a selection IS
+// active gets muted.
+export function segmentColor(index, isDimmed, palette) {
+  return isDimmed ? palette.dimColor : palette.series[index % palette.series.length];
 }

@@ -13,6 +13,34 @@
   --amber-soft: #F7ECD8;
   --red: #A8492F;
   --red-soft: #F5E4DD;
+  --teal-active-border: #BFDAD5;
+  --shadow-elevated: rgba(0, 0, 0, 0.08);
+}
+
+/* Dark mode: same warm, slightly-organic identity as light (not a cold blue-black), just
+   inverted in lightness — kept as a plain attribute-scoped override block so every existing
+   var(--x) reference in the app (every page already uses variables exclusively, confirmed by
+   audit) picks this up with zero per-page changes. Chart-rendering colors (SERIES, gradients,
+   tooltip bg/text, axis text) are NOT here — those live in chartTheme.js as genuinely
+   re-tuned values per mode, not a CSS-variable swap, since recharts needs real JS values and
+   the same hex lightness that works on white looks muddy on a dark panel. */
+:root[data-theme="dark"] {
+  --paper: #1A1C17;
+  --paper-line: #2C2F27;
+  --ink: #ECEEE7;
+  --ink-soft: #A7AB9C;
+  --ink-faint: #6C7066;
+  --panel: #23261F;
+  --border: #3A3E33;
+  --border-soft: #2E3129;
+  --teal: #3ECFC0;
+  --teal-soft: #16302E;
+  --amber: #E8B04B;
+  --amber-soft: #362B15;
+  --red: #E2694A;
+  --red-soft: #3A2019;
+  --teal-active-border: #2C5350;
+  --shadow-elevated: rgba(0, 0, 0, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -39,8 +67,9 @@ input, select, button { font-family: inherit; }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
 }
-input[type="text"], input[type="email"], input[type="password"], input[type="url"] {
+input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="number"], select {
   padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 13px;
+  background: var(--panel); color: var(--ink);
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -59,7 +88,7 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
   transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .home-dash-card:hover {
-  box-shadow: 0 4px 14px rgba(24, 27, 24, 0.08);
+  box-shadow: 0 4px 14px var(--shadow-elevated);
   border-color: var(--teal);
   transform: translateY(-1px);
 }

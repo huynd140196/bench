@@ -7,9 +7,11 @@ import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
   ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil,
 } from "lucide-react";
-import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, DIM_COLOR, SERIES } from "./charting";
+import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor } from "./charting";
 import { evaluateKpiFormula } from "./kpiFormula";
 import { timeAgo } from "../utils";
+import { useTheme } from "../ThemeContext";
+import { chartPalette } from "../chartTheme";
 
 // Read-only-only shortening for the auto-generated summary label (e.g.
 // "sum(Số thiết bị) by Category" -> "sum(Số thiết bị) b…"). Flat character-limit truncation
@@ -41,7 +43,7 @@ const DRILLABLE_TYPES = ["bar", "line", "area", "pie"];
 // A clickable point for Line/Area — recharts' custom `dot` render prop receives geometry
 // (cx/cy) merged with the point's own data (payload) so it can be turned into a real
 // interactive element instead of the default static dot.
-function ClickableDot({ cx, cy, payload, isDim, onDotClick, color }) {
+function ClickableDot({ cx, cy, payload, isDim, onDotClick, color, dimColor, strokeColor }) {
   if (cx == null || cy == null) return null;
   return (
     <circle
@@ -49,8 +51,8 @@ function ClickableDot({ cx, cy, payload, isDim, onDotClick, color }) {
       cx={cx}
       cy={cy}
       r={isDim ? 3 : 5}
-      fill={isDim ? DIM_COLOR : color}
-      stroke="#fff"
+      fill={isDim ? dimColor : color}
+      stroke={strokeColor}
       strokeWidth={1}
       style={{ cursor: payload?.isOther ? "default" : "pointer" }}
       onClick={() => onDotClick(payload)}
@@ -88,6 +90,9 @@ export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
   isSelectionOrigin, activeSelectionValue, onSelect,
 }) {
+  const { mode } = useTheme();
+  const palette = chartPalette(mode);
+
   const type = chart.type;
   const xField = chart.x_field;
   const yField = chart.y_field;
@@ -365,16 +370,26 @@ export default function ChartCard({
   // it on every chartRows/scatterRows change (a new array reference from the useMemo above,
   // which recharts treats as fresh entry data).
   const entryAnim = readOnly ? { isAnimationActive: true, animationDuration: 400, animationEasing: "ease-out" } : {};
-  // Tooltip refinement (item 3) — same reasoning: omitted (undefined) in editor mode so its
-  // tooltip keeps recharts' current default look exactly as it renders today.
-  const tooltipContentStyle = readOnly
-    ? { borderRadius: 10, border: "1px solid var(--border-soft)", boxShadow: "0 4px 16px rgba(24, 27, 24, 0.12)", fontSize: 12, padding: "8px 10px" }
-    : undefined;
+  // Tooltip background/text now always theme-driven (previously only readOnly got any
+  // contentStyle at all — editor mode passed `undefined`, silently relying on recharts' own
+  // hardcoded white-box default, which only looked right by coincidence since light mode's
+  // panel is also white). The extra radius/shadow/padding polish stays readOnly-only.
+  const tooltipContentStyle = {
+    background: palette.tooltipBg,
+    color: palette.tooltipText,
+    ...(readOnly
+      ? { borderRadius: 10, border: "1px solid var(--border-soft)", boxShadow: "var(--shadow-elevated)", fontSize: 12, padding: "8px 10px" }
+      : {}),
+  };
   // Gradient bar fill (item 2) — only substitutes a per-color gradient url for the ACTIVE
   // (non-dimmed) case in read-only; dimmed segments and editor mode both keep the exact flat
   // segmentColor() fill used today. Gradient ids are scoped by chart.id so multiple cards on
   // one dashboard never collide.
-  const barFill = (i, isDimmed) => (readOnly && !isDimmed ? `url(#bar-grad-${chart.id}-${i % SERIES.length})` : segmentColor(i, isDimmed));
+  const barFill = (i, isDimmed) => (readOnly && !isDimmed ? `url(#bar-grad-${chart.id}-${i % palette.series.length})` : segmentColor(i, isDimmed, palette));
+  // Axis tick / pie-label / legend text color — previously unset on all of these, so they fell
+  // back to recharts' own hardcoded default gray, invisible against a dark panel.
+  const axisTick = { fontSize: 10, fill: palette.axisText };
+  const legendStyle = { fontSize: 10, color: palette.axisText };
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column" }}>
@@ -454,7 +469,7 @@ export default function ChartCard({
                   title={t.label}
                   onClick={() => onUpdate(chart.id, { type: t.id })}
                   style={{
-                    padding: 6, borderRadius: 6, border: `1px solid ${active ? "#BFDAD5" : "transparent"}`,
+                    padding: 6, borderRadius: 6, border: `1px solid ${active ? "var(--teal-active-border)" : "transparent"}`,
                     background: active ? "var(--teal-soft)" : "transparent", color: active ? "var(--teal)" : "var(--ink-faint)", cursor: "pointer",
                   }}
                 >
@@ -700,14 +715,14 @@ export default function ChartCard({
                       <AreaChart data={numberSparkline} margin={{ top: 2, right: 2, left: 2, bottom: 0 }}>
                         <defs>
                           <linearGradient id={`kpi-spark-grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#0B6E6E" stopOpacity={0.35} />
-                            <stop offset="100%" stopColor="#0B6E6E" stopOpacity={0} />
+                            <stop offset="0%" stopColor={palette.teal} stopOpacity={0.35} />
+                            <stop offset="100%" stopColor={palette.teal} stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <Area
                           type="monotone"
                           dataKey="value"
-                          stroke="#0B6E6E"
+                          stroke={palette.teal}
                           strokeWidth={1.5}
                           fill={`url(#kpi-spark-grad-${chart.id})`}
                           dot={false}
@@ -732,7 +747,7 @@ export default function ChartCard({
               <BarChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 {readOnly && (
                   <defs>
-                    {SERIES.map((color, i) => (
+                    {palette.series.map((color, i) => (
                       <linearGradient key={i} id={`bar-grad-${chart.id}-${i}`} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={color} stopOpacity={1} />
                         <stop offset="100%" stopColor={color} stopOpacity={0.55} />
@@ -741,8 +756,8 @@ export default function ChartCard({
                   </defs>
                 )}
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                <XAxis dataKey="name" tick={axisTick} interval={0} angle={-20} textAnchor="end" height={50} />
+                <YAxis tick={axisTick} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Bar dataKey="value" radius={[3, 3, 0, 0]} onClick={(data) => handleSegmentClick(data?.payload ?? data)} cursor="pointer" {...entryAnim}>
                   {chartRows.map((r, i) => <Cell key={i} fill={barFill(i, hasSelectionMatch && r.name !== activeSelectionValue)} />)}
@@ -751,19 +766,21 @@ export default function ChartCard({
             ) : type === "line" ? (
               <LineChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                <XAxis dataKey="name" tick={axisTick} interval={0} angle={-20} textAnchor="end" height={50} />
+                <YAxis tick={axisTick} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Line
                   type="monotone"
                   dataKey="value"
-                  stroke="#B9791C"
+                  stroke={palette.amber}
                   strokeWidth={2}
                   dot={(dotProps) => (
                     <ClickableDot
                       key={dotProps.index}
                       {...dotProps}
-                      color="#B9791C"
+                      color={palette.amber}
+                      dimColor={palette.dimColor}
+                      strokeColor={palette.dotStroke}
                       isDim={hasSelectionMatch && dotProps.payload?.name !== activeSelectionValue}
                       onDotClick={handleSegmentClick}
                     />
@@ -776,26 +793,28 @@ export default function ChartCard({
                 {readOnly && (
                   <defs>
                     <linearGradient id={`area-grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0B6E6E" stopOpacity={0.45} />
-                      <stop offset="100%" stopColor="#0B6E6E" stopOpacity={0} />
+                      <stop offset="0%" stopColor={palette.teal} stopOpacity={0.45} />
+                      <stop offset="100%" stopColor={palette.teal} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                 )}
                 <CartesianGrid stroke="var(--paper-line)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                <XAxis dataKey="name" tick={axisTick} interval={0} angle={-20} textAnchor="end" height={50} />
+                <YAxis tick={axisTick} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Area
                   type="monotone"
                   dataKey="value"
-                  stroke="#0B6E6E"
-                  fill={readOnly ? `url(#area-grad-${chart.id})` : "#E2EFEC"}
+                  stroke={palette.teal}
+                  fill={readOnly ? `url(#area-grad-${chart.id})` : palette.tealSoftFill}
                   strokeWidth={2}
                   dot={(dotProps) => (
                     <ClickableDot
                       key={dotProps.index}
                       {...dotProps}
-                      color="#0B6E6E"
+                      color={palette.teal}
+                      dimColor={palette.dimColor}
+                      strokeColor={palette.dotStroke}
                       isDim={hasSelectionMatch && dotProps.payload?.name !== activeSelectionValue}
                       onDotClick={handleSegmentClick}
                     />
@@ -806,14 +825,14 @@ export default function ChartCard({
             ) : type === "pie" ? (
               <PieChart>
                 <Tooltip formatter={(v) => (isOverallRatio ? `${v}%` : fmtNum(v))} contentStyle={tooltipContentStyle} />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Legend wrapperStyle={legendStyle} />
                 <Pie
                   data={pieDisplayRows}
                   dataKey="value"
                   nameKey="name"
                   innerRadius={isOverallRatio ? 55 : 0}
                   outerRadius={80}
-                  label={isOverallRatio ? renderOverallRatioLabel : { fontSize: 10 }}
+                  label={isOverallRatio ? renderOverallRatioLabel : axisTick}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
                   cursor={isOverallRatio ? "default" : "pointer"}
                   {...entryAnim}
@@ -822,7 +841,7 @@ export default function ChartCard({
                   {pieDisplayRows.map((r, i) => (
                     <Cell
                       key={i}
-                      fill={isOverallRatio ? (r.name === "Remainder" ? DIM_COLOR : segmentColor(0, false)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue)}
+                      fill={isOverallRatio ? (r.name === "Remainder" ? palette.dimColor : segmentColor(0, false, palette)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette)}
                     />
                   ))}
                 </Pie>
@@ -830,10 +849,10 @@ export default function ChartCard({
             ) : (
               <ScatterChart margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke="var(--paper-line)" />
-                <XAxis dataKey="x" name={xField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
-                <YAxis dataKey="y" name={yField} tick={{ fontSize: 10 }} tickFormatter={fmtNum} />
+                <XAxis dataKey="x" name={xField} tick={axisTick} tickFormatter={fmtNum} />
+                <YAxis dataKey="y" name={yField} tick={axisTick} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
-                <Scatter data={scatterRows} fill="#A8492F" {...entryAnim} />
+                <Scatter data={scatterRows} fill={palette.red} {...entryAnim} />
               </ScatterChart>
             )}
           </ResponsiveContainer>
