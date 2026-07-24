@@ -124,6 +124,10 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
   background: var(--teal-soft) !important;
 }
 
+/* DashboardSkeleton's loading placeholder only (shown before we know desktop/narrow or
+   ownership) — a plain reflowing 1/2/3-column approximation is fine there since it's never
+   meant to match the real saved free-form layout exactly. Not used by DashboardCharts.jsx
+   itself, which always renders either react-grid-layout (desktop) or .chart-stack (narrow). */
 .chart-grid {
   display: grid;
   gap: 12px;
@@ -135,4 +139,35 @@ input[type="text"], input[type="email"], input[type="password"], input[type="url
 }
 @media (min-width: 1000px) {
   .chart-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Narrow-width fallback (<768px) for DashboardCharts.jsx — a plain stacked single column,
+   used identically for both editor and read-only, with no react-grid-layout involvement. */
+.chart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* Desktop-width (>=768px) free-form grid, react-grid-layout's own item/handle classes styled
+   to match the app's look. Interactive (draggable/resizable) in editor mode, fully static
+   (isDraggable/isResizable both false, so RGL never even renders these handle elements) in
+   read-only — same layout, same component, just non-interactive. */
+.dashboard-grid-layout {
+  margin-top: 16px;
+}
+.dashboard-grid-layout .react-grid-item.react-grid-placeholder {
+  background: var(--teal);
+  opacity: 0.15;
+  border-radius: 10px;
+}
+.chart-drag-handle:active {
+  cursor: grabbing;
+}
+.dashboard-grid-layout .react-resizable-handle {
+  opacity: 0.5;
+}
+.dashboard-grid-layout .react-resizable-handle:hover {
+  opacity: 1;
 }

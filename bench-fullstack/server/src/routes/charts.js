@@ -97,6 +97,14 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
     : chart.number_format_json;
   const title = "title" in req.body ? (req.body.title || null) : chart.title;
 
+  // Free-form grid position/size (react-grid-layout units). Sent together as a group on
+  // drag-stop/resize-stop — no partial-field case to worry about, but "in req.body" still
+  // used for consistency with every other optional field above.
+  const gridX = "gridX" in req.body ? req.body.gridX : chart.grid_x;
+  const gridY = "gridY" in req.body ? req.body.gridY : chart.grid_y;
+  const gridW = "gridW" in req.body ? req.body.gridW : chart.grid_w;
+  const gridH = "gridH" in req.body ? req.body.gridH : chart.grid_h;
+
   const effectiveType = patch.type;
   if (effectiveType === "number" && numberMode === "formula" && numberFormula) {
     try {
@@ -111,13 +119,13 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
       type = ?, x_field = ?, y_field = ?, y_field_denominator = ?, agg = ?, drill_fields_json = ?,
       rank_limit = ?, rank_direction = ?, rank_show_other = ?,
       number_mode = ?, number_field = ?, number_agg = ?, number_formula = ?, number_respect_filters = ?, number_format_json = ?,
-      title = ?
+      title = ?, grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ?
     WHERE id = ?`
   ).run(
     patch.type, xField, patch.yField ?? patch.y_field, patch.yFieldDenominator ?? patch.y_field_denominator ?? null, patch.agg, JSON.stringify(drillFields),
     rankLimit, rankDirection, rankShowOther,
     numberMode, numberField, numberAgg, numberFormula, numberRespectFilters, numberFormatJson,
-    title,
+    title, gridX, gridY, gridW, gridH,
     chart.id
   );
   res.json({ ok: true });

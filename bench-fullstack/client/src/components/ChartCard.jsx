@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
-  ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil,
+  ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil, GripVertical,
 } from "lucide-react";
 import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor } from "./charting";
 import { evaluateKpiFormula } from "./kpiFormula";
@@ -88,7 +88,7 @@ function formatNumberValue(value, { decimals, abbreviate, prefix, suffix }) {
 
 export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
-  isSelectionOrigin, activeSelectionValue, onSelect,
+  isSelectionOrigin, activeSelectionValue, onSelect, showDragHandle, inGridLayout,
 }) {
   const { mode } = useTheme();
   const palette = chartPalette(mode);
@@ -392,9 +392,17 @@ export default function ChartCard({
   const legendStyle = { fontSize: 10, color: palette.axisText };
 
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+    <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {showDragHandle && (
+            <GripVertical
+              size={14}
+              color="var(--ink-faint)"
+              className="chart-drag-handle"
+              style={{ cursor: "grab", flexShrink: 0 }}
+            />
+          )}
           <Icon size={14} color="var(--teal)" />
           {editingTitle ? (
             <input
@@ -691,15 +699,18 @@ export default function ChartCard({
         </div>
       )}
 
-      <div className={readOnly ? "chart-viz-readonly" : undefined} style={{ padding: 12, minHeight: 240 }}>
+      <div
+        className={readOnly ? "chart-viz-readonly" : undefined}
+        style={inGridLayout ? { padding: 12, flex: 1, minHeight: 0 } : { padding: 12, minHeight: 240 }}
+      >
         {type === "table" ? (
-          <DataTable rows={rows} columns={sheet?.columns || []} />
+          <DataTable rows={rows} columns={sheet?.columns || []} fillHeight={inGridLayout} />
         ) : isNumber ? (
           <div
             style={
               readOnly && numberSparkline
-                ? { minHeight: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4px 0" }
-                : { height: 220, display: "flex", alignItems: "center", justifyContent: "center" }
+                ? { height: inGridLayout ? "100%" : undefined, minHeight: inGridLayout ? undefined : 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4px 0" }
+                : { height: inGridLayout ? "100%" : 220, display: "flex", alignItems: "center", justifyContent: "center" }
             }
           >
             {numberResult.error ? (
@@ -738,11 +749,11 @@ export default function ChartCard({
             )}
           </div>
         ) : (!isOverallRatio && !currentField) || !yField || (needsAgg && agg === "ratio" && !yFieldDenominator) ? (
-          <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--ink-faint)" }} className="mono">
+          <div style={{ height: inGridLayout ? "100%" : 220, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--ink-faint)" }} className="mono">
             Choose fields to plot this chart
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={230}>
+          <ResponsiveContainer width="100%" height={inGridLayout ? "100%" : 230}>
             {type === "bar" ? (
               <BarChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 {readOnly && (
@@ -862,10 +873,13 @@ export default function ChartCard({
   );
 }
 
-function DataTable({ rows, columns }) {
+function DataTable({ rows, columns, fillHeight }) {
   const cols = columns.slice(0, 8);
   return (
-    <div className="mono" style={{ overflow: "auto", maxHeight: 260, border: "1px solid var(--border-soft)", borderRadius: 6 }}>
+    <div
+      className="mono"
+      style={{ overflow: "auto", height: fillHeight ? "100%" : undefined, maxHeight: fillHeight ? undefined : 260, border: "1px solid var(--border-soft)", borderRadius: 6 }}
+    >
       <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
         <thead style={{ position: "sticky", top: 0, background: "var(--paper)" }}>
           <tr>{cols.map((c) => <th key={c.name} style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>{c.name}</th>)}</tr>

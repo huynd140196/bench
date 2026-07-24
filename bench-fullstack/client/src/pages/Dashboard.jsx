@@ -89,6 +89,10 @@ export default function Dashboard({ user }) {
         number_respect_filters: "numberRespectFilters" in patch ? (patch.numberRespectFilters ? 1 : 0) : c.number_respect_filters,
         number_format_json: "numberFormat" in patch ? (patch.numberFormat ? JSON.stringify(patch.numberFormat) : null) : c.number_format_json,
         title: "title" in patch ? (patch.title || null) : c.title,
+        grid_x: "gridX" in patch ? patch.gridX : c.grid_x,
+        grid_y: "gridY" in patch ? patch.gridY : c.grid_y,
+        grid_w: "gridW" in patch ? patch.gridW : c.grid_w,
+        grid_h: "gridH" in patch ? patch.gridH : c.grid_h,
       };
     }));
     await api.updateChart(workspaceId, dashboardId, id, patch);
