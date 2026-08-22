@@ -430,13 +430,13 @@ export default function ChartCard({
         // corners (the header has no overflow:hidden ancestor to clip it for free).
         <div
           style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+            display: "flex", alignItems: "center", gap: 8, padding: "12px 14px",
             borderBottom: "1px solid var(--border-soft)", minWidth: 0,
             background: "var(--header-bg)", borderTopLeftRadius: 10, borderTopRightRadius: 10,
           }}
         >
-          <Icon size={14} color="var(--teal)" style={{ flexShrink: 0 }} />
-          <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+          <Icon size={16} color="var(--teal)" style={{ flexShrink: 0 }} />
+          <span className="mono" style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
             {displayTitle}
           </span>
           {isSelectionOrigin && activeSelectionValue && (
