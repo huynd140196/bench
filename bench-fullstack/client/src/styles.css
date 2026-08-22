@@ -15,11 +15,14 @@
   --red-soft: #F5E4DD;
   --teal-active-border: #BFDAD5;
   --shadow-elevated: rgba(0, 0, 0, 0.08);
-  /* Pinned true white/black for the read-only chart card header — deliberately NOT --panel
-     (which is already #FFFFFF here, but is an off-black #23261F in dark mode, not #000000) so
-     the header reads as a genuinely separate pinned block in both themes, not just a re-use of
-     the body's panel shade. */
-  --header-bg: #FFFFFF;
+  /* Read-only chart card header background — deliberately NOT --panel (the card body's white)
+     so the header reads as a genuinely separate block. Pure #FFFFFF here was tried first but
+     confirmed (via screenshot) indistinguishable from the white card body — aliased to --paper
+     instead: the same soft warm-grey tint this app already uses to separate "page" from "white
+     card" everywhere else, so the header reads as a real, if subtle, block without inventing an
+     unrelated grey. (Dark mode keeps its own #000000 below — --panel there is #23261F, not
+     black, so pure black is already a real, confirmed-working difference and needs no aliasing.) */
+  --header-bg: var(--paper);
 }
 
 /* Dark mode: same warm, slightly-organic identity as light (not a cold blue-black), just
