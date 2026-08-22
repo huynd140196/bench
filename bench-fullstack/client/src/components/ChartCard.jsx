@@ -13,18 +13,6 @@ import { timeAgo } from "../utils";
 import { useTheme } from "../ThemeContext";
 import { chartPalette } from "../chartTheme";
 
-// Read-only-only shortening for the auto-generated summary label (e.g.
-// "sum(Số thiết bị) by Category" -> "sum(Số thiết bị) b…"). Flat character-limit truncation
-// rather than a type-specific rule (e.g. "just show the metric name") since it applies
-// uniformly across every chart type (bar/line/pie/ratio/number/table all produce differently
-// shaped autoLabel strings) without needing a bespoke rule per shape. The full string is
-// always still available via the native `title` tooltip. A manually-set chart.title is
-// unaffected either way — this only ever shortens the auto-generated fallback.
-const READONLY_LABEL_LIMIT = 20;
-function shortenLabel(label) {
-  return label.length > READONLY_LABEL_LIMIT ? `${label.slice(0, READONLY_LABEL_LIMIT).trimEnd()}…` : label;
-}
-
 // Exported so Home.jsx's gallery cards can reuse the exact same chart-type icon set for
 // their static per-dashboard preview icon, rather than duplicating this list.
 export const CHART_TYPES = [
@@ -359,9 +347,6 @@ export default function ChartCard({
     : `${xField || "—"} vs ${yField || "—"}`;
   const hasCustomTitle = !!(chart.title && chart.title.trim());
   const displayTitle = hasCustomTitle ? chart.title : autoLabel;
-  // Read-only + no custom title only — editor mode always shows the full displayTitle
-  // unchanged, and a manually-set title is never shortened either way.
-  const readOnlyLabel = readOnly && !hasCustomTitle ? shortenLabel(autoLabel) : null;
 
   // Entry-animation tuning (item 1, public-view visual polish) — read-only only, shared by
   // bar/line/area/pie/scatter. In editor mode these props are omitted entirely (not set to
@@ -396,86 +381,121 @@ export default function ChartCard({
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          {showDragHandle && (
-            <GripVertical
-              size={14}
-              color="var(--ink-faint)"
-              className="chart-drag-handle"
-              style={{ cursor: "grab", flexShrink: 0 }}
-            />
-          )}
-          <Icon size={14} color="var(--teal)" />
-          {editingTitle ? (
-            <input
-              autoFocus
-              type="text"
-              value={titleDraft}
-              placeholder={autoLabel}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={() => { onUpdate(chart.id, { title: titleDraft.trim() || null }); setEditingTitle(false); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") { setTitleDraft(chart.title || ""); setEditingTitle(false); }
-              }}
-              className="mono"
-              style={{ fontSize: 12, padding: "2px 4px", minWidth: 120 }}
-            />
-          ) : (
-            <span
-              className="mono"
-              title={readOnlyLabel ? autoLabel : undefined}
-              style={{ fontSize: 12, color: "var(--ink-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            >
-              {readOnlyLabel || displayTitle}
+      {readOnly ? (
+        // Two-line header (Option B): title gets the full card width on its own line, never
+        // truncated (it wraps if it's genuinely long rather than ellipsizing); the sheet-name
+        // badge and refresh timestamp move to a second, visually secondary line underneath
+        // instead of competing with the title for the same row. Every read-only card gets this
+        // second line (the sheet badge is always present), so short-titled cards stay
+        // consistent with long-titled ones rather than looking oddly taller by comparison.
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <Icon size={14} color="var(--teal)" style={{ flexShrink: 0 }} />
+            <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+              {displayTitle}
             </span>
-          )}
-          {sheet?.name && (
-            <span
-              className="mono"
-              title={`Data source: ${sheet.name}`}
-              style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap", padding: "1px 5px", background: "var(--paper)", borderRadius: 4, border: "1px solid var(--border-soft)" }}
-            >
-              {sheet.name}
-            </span>
-          )}
-          {readOnly && sheet?.sourceType === "google_sheets" && (
-            <span
-              className="mono"
-              title={`Sheet data last refreshed ${sheet.updatedAt}`}
-              style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap" }}
-            >
-              · data as of {timeAgo(sheet.updatedAt)}
-            </span>
-          )}
-          {!readOnly && !editingTitle && (
-            <button
-              onClick={() => { setTitleDraft(chart.title || ""); setEditingTitle(true); }}
-              className="btn-ghost"
-              style={{ padding: 2 }}
-              title="Edit chart title"
-            >
-              <Pencil size={11} />
-            </button>
-          )}
-          {isSelectionOrigin && activeSelectionValue && (
-            <button
-              onClick={() => onSelect(currentField, null)}
-              className="btn-ghost mono"
-              style={{ fontSize: 10, padding: "2px 6px", background: "var(--teal-soft)", color: "var(--teal)", borderRadius: 5 }}
-              title="Clear selection"
-            >
-              {activeSelectionValue} <X size={9} style={{ verticalAlign: "middle" }} />
-            </button>
-          )}
+            {isSelectionOrigin && activeSelectionValue && (
+              <button
+                onClick={() => onSelect(currentField, null)}
+                className="btn-ghost mono"
+                style={{ fontSize: 10, padding: "2px 6px", background: "var(--teal-soft)", color: "var(--teal)", borderRadius: 5, flexShrink: 0 }}
+                title="Clear selection"
+              >
+                {activeSelectionValue} <X size={9} style={{ verticalAlign: "middle" }} />
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 22, minWidth: 0 }}>
+            {sheet?.name && (
+              <span
+                className="mono"
+                title={`Data source: ${sheet.name}`}
+                style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap", padding: "1px 5px", background: "var(--paper)", borderRadius: 4, border: "1px solid var(--border-soft)" }}
+              >
+                {sheet.name}
+              </span>
+            )}
+            {sheet?.sourceType === "google_sheets" && (
+              <span
+                className="mono"
+                title={`Sheet data last refreshed ${sheet.updatedAt}`}
+                style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                data as of {timeAgo(sheet.updatedAt)}
+              </span>
+            )}
+          </div>
         </div>
-        {!readOnly && (
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            {showDragHandle && (
+              <GripVertical
+                size={14}
+                color="var(--ink-faint)"
+                className="chart-drag-handle"
+                style={{ cursor: "grab", flexShrink: 0 }}
+              />
+            )}
+            <Icon size={14} color="var(--teal)" />
+            {editingTitle ? (
+              <input
+                autoFocus
+                type="text"
+                value={titleDraft}
+                placeholder={autoLabel}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={() => { onUpdate(chart.id, { title: titleDraft.trim() || null }); setEditingTitle(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") { setTitleDraft(chart.title || ""); setEditingTitle(false); }
+                }}
+                className="mono"
+                style={{ fontSize: 12, padding: "2px 4px", minWidth: 120 }}
+              />
+            ) : (
+              <span
+                className="mono"
+                style={{ fontSize: 12, color: "var(--ink-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {displayTitle}
+              </span>
+            )}
+            {sheet?.name && (
+              <span
+                className="mono"
+                title={`Data source: ${sheet.name}`}
+                style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap", padding: "1px 5px", background: "var(--paper)", borderRadius: 4, border: "1px solid var(--border-soft)" }}
+              >
+                {sheet.name}
+              </span>
+            )}
+            {!editingTitle && (
+              <button
+                onClick={() => { setTitleDraft(chart.title || ""); setEditingTitle(true); }}
+                className="btn-ghost"
+                style={{ padding: 2 }}
+                title="Edit chart title"
+              >
+                <Pencil size={11} />
+              </button>
+            )}
+            {isSelectionOrigin && activeSelectionValue && (
+              <button
+                onClick={() => onSelect(currentField, null)}
+                className="btn-ghost mono"
+                style={{ fontSize: 10, padding: "2px 6px", background: "var(--teal-soft)", color: "var(--teal)", borderRadius: 5 }}
+                title="Clear selection"
+              >
+                {activeSelectionValue} <X size={9} style={{ verticalAlign: "middle" }} />
+              </button>
+            )}
+          </div>
           <button onClick={() => onRemove(chart.id)} className="btn-ghost" style={{ padding: 4 }}>
             <Trash2 size={13} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {!readOnly && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
