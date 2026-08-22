@@ -76,6 +76,15 @@ function formatNumberValue(value, { decimals, abbreviate, prefix, suffix }) {
   return `${prefix}${body}${suffix}`;
 }
 
+// A literal fraction side (e.g. the 100 in "SUM(X)/100", or 0.5 in "SUM(X)/0.5") is shown
+// exactly as its own value, decimals included — fmtNum's K/M/B abbreviation and the agg side's
+// integer rounding only make sense for a computed aggregate that could be an arbitrarily large
+// data-driven sum; rounding a literal like 0.5 down to a whole number would misrepresent the
+// actual denominator the formula names. An agg side keeps the existing rounded/abbreviated form.
+function formatFractionSide(side) {
+  return side.type === "literal" ? String(side.value) : fmtNum(Math.round(side.value));
+}
+
 export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
   isSelectionOrigin, activeSelectionValue, onSelect, showDragHandle, inGridLayout,
@@ -172,22 +181,27 @@ export default function ChartCard({
   }, [isNumber, numberMode, numberFormula, numberField, numberAgg, numberSourceRows, numberFieldNames]);
 
   // Formula-mode-only "display as fraction" toggle. Only meaningful when the formula reduces
-  // to a single division of exactly two aggregates (see detectKpiFraction) — quick mode has no
-  // formula to inspect at all, and a formula outside that shape (three+ aggregates, +/- at the
-  // top level, ...) has no well-defined numerator/denominator to show instead of its computed
-  // value, so the toggle stays disabled rather than showing something nonsensical.
+  // to a single division where each side is either an AGG(field) call or a bare numeric
+  // literal (see detectKpiFraction) — quick mode has no formula to inspect at all, and a
+  // formula outside that shape (three+ aggregates, +/- at the top level, a non-literal
+  // denominator, ...) has no well-defined numerator/denominator to show instead of its
+  // computed value, so the toggle stays disabled rather than showing something nonsensical.
   const kpiFractionShape = useMemo(
     () => (isNumber && numberMode === "formula" && numberFormula.trim() ? detectKpiFraction(numberFormula) : null),
     [isNumber, numberMode, numberFormula]
   );
   const numberShowFraction = !!chart.number_show_fraction;
-  // Reuses the same two aggregate values the formula's own evaluation already computed them
-  // from (aggField, against the same numberSourceRows) — no separate computation path.
+  // A literal side's value IS the constant, no computation needed; an agg side reuses aggField
+  // against the same numberSourceRows the formula's own evaluation would've used it against —
+  // no separate computation path. Keeps the type tag alongside the resolved value (not just the
+  // bare number) so the render below can show a literal exactly as typed rather than running it
+  // through fmtNum's K/M/B abbreviation, which only makes sense for a computed aggregate.
   const numberFractionResult = useMemo(() => {
     if (!kpiFractionShape) return null;
+    const resolveSide = (side) => ({ type: side.type, value: side.type === "literal" ? side.value : aggField(numberSourceRows, side.field, side.agg) });
     return {
-      numerator: aggField(numberSourceRows, kpiFractionShape.numerator.field, kpiFractionShape.numerator.agg),
-      denominator: aggField(numberSourceRows, kpiFractionShape.denominator.field, kpiFractionShape.denominator.agg),
+      numerator: resolveSide(kpiFractionShape.numerator),
+      denominator: resolveSide(kpiFractionShape.denominator),
     };
   }, [kpiFractionShape, numberSourceRows]);
 
@@ -710,7 +724,7 @@ export default function ChartCard({
               title={
                 kpiFractionShape
                   ? undefined
-                  : "Only available when the formula is a single division of exactly two aggregates (e.g. SUM(X)/SUM(Y) or 100*SUM(X)/SUM(Y))"
+                  : "Only available when the formula is a single division where each side is an aggregate or a plain number (e.g. SUM(X)/SUM(Y), SUM(X)/100, or 100*SUM(X)/50)"
               }
             >
               <input
@@ -801,7 +815,7 @@ export default function ChartCard({
               <>
                 <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: "var(--ink)", textAlign: "center" }}>
                   {numberShowFraction && numberFractionResult
-                    ? `${fmtNum(Math.round(numberFractionResult.numerator))}/${fmtNum(Math.round(numberFractionResult.denominator))}`
+                    ? `${formatFractionSide(numberFractionResult.numerator)}/${formatFractionSide(numberFractionResult.denominator)}`
                     : formatNumberValue(readOnly ? displayedNumberValue : numberResult.value, { decimals, abbreviate, prefix, suffix })}
                 </div>
                 {readOnly && numberSparkline && (
