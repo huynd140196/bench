@@ -419,7 +419,22 @@ export default function ChartCard({
         // genuinely long rather than ellipsizing). The sheet-name badge + refresh timestamp
         // that used to sit on a second line underneath have been removed entirely (not just
         // visually hidden) — see the removed computation note below.
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border-soft)", minWidth: 0 }}>
+        //
+        // background: var(--header-bg) pins this to true #FFFFFF/#000000 (see styles.css),
+        // deliberately distinct from --panel (the card body's background) so the header reads
+        // as its own pinned block rather than just re-using the body's shade — in dark mode
+        // --panel is #23261F, not black, so this is a real, visible difference; in light mode
+        // --panel is already #FFFFFF, so the existing border-bottom below is what actually
+        // separates header from body there. borderTopLeftRadius/borderTopRightRadius match
+        // .card's own 10px so this opaque header doesn't square off the card's rounded top
+        // corners (the header has no overflow:hidden ancestor to clip it for free).
+        <div
+          style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+            borderBottom: "1px solid var(--border-soft)", minWidth: 0,
+            background: "var(--header-bg)", borderTopLeftRadius: 10, borderTopRightRadius: 10,
+          }}
+        >
           <Icon size={14} color="var(--teal)" style={{ flexShrink: 0 }} />
           <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
             {displayTitle}
