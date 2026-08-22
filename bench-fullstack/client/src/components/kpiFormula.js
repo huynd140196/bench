@@ -49,3 +49,62 @@ export function evaluateKpiFormula(formula, rows, fieldNames) {
 
   return expr.evaluate();
 }
+
+// Probe points for detectKpiFraction: well-separated, none zero or equal to each other, so a
+// formula that ISN'T a homogeneous k*(num/den) can't coincidentally satisfy the consistency
+// check below at all four.
+const FRACTION_PROBES = [[2, 3], [5, 7], [11, 4], [9, 13]];
+
+// Detects whether `formula` is algebraically "a single division of exactly two aggregate
+// values, optionally scaled by a constant multiplier" -- e.g. "SUM(X)/SUM(Y)" or
+// "100 * SUM(X) / SUM(Y)" -- regardless of where the multiplier sits syntactically (before,
+// after, split across both sides). Backs the Number/KPI widget's "display as fraction" toggle:
+// outside this shape (three+ aggregates, +/- at the top level, multiplying the two aggregates
+// instead of dividing, a constant folded into the denominator, ...) there's no well-defined
+// numerator/denominator to show.
+//
+// Detected numerically rather than by inspecting expr-eval's parsed structure: expr-eval's
+// Parser doesn't expose a public AST, only an internal compiled instruction list that isn't
+// part of its documented API. A formula reduces to k*(num/den) for some constant k iff it's
+// homogeneous of degree +1 in the numerator's value and degree -1 in the denominator's --
+// f(t*num, den) = t*f(num, den) and f(num, t*den) = f(num, den)/t for every t. Substituting the
+// formula's first AGG(...) with a symbolic __num__ and its second with __den__, then checking
+// that a consistent k = f(num, den)*den/num falls out across several independent probe pairs,
+// confirms this identity holds (a formula that isn't actually this shape can't satisfy it at
+// multiple unrelated points except by coincidence, which doesn't happen for any real formula
+// built from +, -, *, /, ^ and the aggregate calls).
+export function detectKpiFraction(formula) {
+  const matches = [...formula.matchAll(AGG_CALL_RE)];
+  if (matches.length !== 2) return null;
+
+  let i = 0;
+  const probeFormula = formula.replace(AGG_CALL_RE, () => (i++ === 0 ? "__num__" : "__den__"));
+
+  let expr;
+  try {
+    expr = parser.parse(probeFormula);
+  } catch {
+    return null;
+  }
+  const vars = expr.variables().sort();
+  if (vars.length !== 2 || vars[0] !== "__den__" || vars[1] !== "__num__") return null;
+
+  let k = null;
+  for (const [num, den] of FRACTION_PROBES) {
+    let val;
+    try {
+      val = expr.evaluate({ __num__: num, __den__: den });
+    } catch {
+      return null;
+    }
+    if (!Number.isFinite(val)) return null;
+    const candidateK = (val * den) / num;
+    if (k === null) k = candidateK;
+    else if (Math.abs(candidateK - k) > Math.abs(k) * 1e-9 + 1e-9) return null;
+  }
+
+  return {
+    numerator: { agg: matches[0][1].toLowerCase(), field: matches[0][2].trim() },
+    denominator: { agg: matches[1][1].toLowerCase(), field: matches[1][2].trim() },
+  };
+}

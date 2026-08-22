@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil, GripVertical,
 } from "lucide-react";
 import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor } from "./charting";
-import { evaluateKpiFormula } from "./kpiFormula";
+import { evaluateKpiFormula, detectKpiFraction } from "./kpiFormula";
 import { timeAgo } from "../utils";
 import { useTheme } from "../ThemeContext";
 import { chartPalette } from "../chartTheme";
@@ -170,6 +170,26 @@ export default function ChartCard({
     if (!numberField) return { value: null, error: null };
     return { value: aggField(numberSourceRows, numberField, numberAgg), error: null };
   }, [isNumber, numberMode, numberFormula, numberField, numberAgg, numberSourceRows, numberFieldNames]);
+
+  // Formula-mode-only "display as fraction" toggle. Only meaningful when the formula reduces
+  // to a single division of exactly two aggregates (see detectKpiFraction) — quick mode has no
+  // formula to inspect at all, and a formula outside that shape (three+ aggregates, +/- at the
+  // top level, ...) has no well-defined numerator/denominator to show instead of its computed
+  // value, so the toggle stays disabled rather than showing something nonsensical.
+  const kpiFractionShape = useMemo(
+    () => (isNumber && numberMode === "formula" && numberFormula.trim() ? detectKpiFraction(numberFormula) : null),
+    [isNumber, numberMode, numberFormula]
+  );
+  const numberShowFraction = !!chart.number_show_fraction;
+  // Reuses the same two aggregate values the formula's own evaluation already computed them
+  // from (aggField, against the same numberSourceRows) — no separate computation path.
+  const numberFractionResult = useMemo(() => {
+    if (!kpiFractionShape) return null;
+    return {
+      numerator: aggField(numberSourceRows, kpiFractionShape.numerator.field, kpiFractionShape.numerator.agg),
+      denominator: aggField(numberSourceRows, kpiFractionShape.denominator.field, kpiFractionShape.denominator.agg),
+    };
+  }, [kpiFractionShape, numberSourceRows]);
 
   // Count-up animation (item 4, read-only only). Re-runs whenever the target value changes
   // (mount, or a filter/selection change on a live dashboard), always counting from 0 over a
@@ -683,6 +703,25 @@ export default function ChartCard({
             />
             Respect dashboard filters
           </label>
+          {numberMode === "formula" && (
+            <label
+              className="mono"
+              style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, opacity: kpiFractionShape ? 1 : 0.5 }}
+              title={
+                kpiFractionShape
+                  ? undefined
+                  : "Only available when the formula is a single division of exactly two aggregates (e.g. SUM(X)/SUM(Y) or 100*SUM(X)/SUM(Y))"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={numberShowFraction}
+                disabled={!kpiFractionShape}
+                onChange={(e) => onUpdate(chart.id, { numberShowFraction: e.target.checked })}
+              />
+              Display as fraction
+            </label>
+          )}
           <label className="mono" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
             Decimals
             <input
@@ -761,7 +800,9 @@ export default function ChartCard({
             ) : (
               <>
                 <div className="mono" style={{ fontSize: 40, fontWeight: 700, color: "var(--ink)", textAlign: "center" }}>
-                  {formatNumberValue(readOnly ? displayedNumberValue : numberResult.value, { decimals, abbreviate, prefix, suffix })}
+                  {numberShowFraction && numberFractionResult
+                    ? `${fmtNum(Math.round(numberFractionResult.numerator))}/${fmtNum(Math.round(numberFractionResult.denominator))}`
+                    : formatNumberValue(readOnly ? displayedNumberValue : numberResult.value, { decimals, abbreviate, prefix, suffix })}
                 </div>
                 {readOnly && numberSparkline && (
                   <div style={{ width: "100%", maxWidth: 220, height: 36, marginTop: 10 }}>
@@ -884,7 +925,7 @@ export default function ChartCard({
                   data={pieDisplayRows}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={isOverallRatio ? 55 : 0}
+                  innerRadius={0}
                   outerRadius={80}
                   label={isOverallRatio ? renderOverallRatioLabel : axisTick}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
@@ -895,7 +936,15 @@ export default function ChartCard({
                   {pieDisplayRows.map((r, i) => (
                     <Cell
                       key={i}
-                      fill={isOverallRatio ? (r.name === "Remainder" ? palette.dimColor : segmentColor(0, false, palette)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette)}
+                      // Remainder uses var(--ink-faint) directly (same "CSS var as SVG fill" pattern
+                      // renderOverallRatioLabel already uses below) rather than palette.dimColor --
+                      // dimColor is shared by every chart's cross-filter-dimming and is tuned for
+                      // that purpose (a muted copy of the ACTIVE color), not for standing out against
+                      // a plain panel on its own. ink-faint is deliberately legible-but-secondary
+                      // against the panel in both themes, giving clearer separation from both the
+                      // panel and the highlighted slice than dimColor did (particularly in dark mode,
+                      // where dimColor sits close in luminance to the panel background).
+                      fill={isOverallRatio ? (r.name === "Remainder" ? "var(--ink-faint)" : segmentColor(0, false, palette)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette)}
                     />
                   ))}
                 </Pie>

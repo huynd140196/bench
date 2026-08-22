@@ -22,7 +22,7 @@ router.post("/:workspaceId/dashboards/:dashboardId/charts", requireDashboardOwne
     sheetId, type = "bar", xField = null, yField = null, yFieldDenominator = null, agg = "sum", drillFields,
     rankLimit = null, rankDirection = "top", rankShowOther = false,
     numberMode = null, numberField = null, numberAgg = null, numberFormula = null,
-    numberRespectFilters = true, numberFormat = null, title = null,
+    numberRespectFilters = true, numberShowFraction = false, numberFormat = null, title = null,
   } = req.body;
   if (!sheetId) return res.status(400).json({ error: "sheetId is required" });
 
@@ -43,12 +43,12 @@ router.post("/:workspaceId/dashboards/:dashboardId/charts", requireDashboardOwne
     `INSERT INTO charts (
       id, dashboard_id, sheet_id, type, x_field, y_field, y_field_denominator, agg, sort_order, drill_fields_json,
       rank_limit, rank_direction, rank_show_other,
-      number_mode, number_field, number_agg, number_formula, number_respect_filters, number_format_json, title
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      number_mode, number_field, number_agg, number_formula, number_respect_filters, number_show_fraction, number_format_json, title
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, req.params.dashboardId, sheetId, type, finalXField, yField, yFieldDenominator, agg, count, JSON.stringify(finalDrillFields),
     rankLimit, rankDirection, rankShowOther ? 1 : 0,
-    numberMode, numberField, numberAgg, numberFormula, numberRespectFilters ? 1 : 0, numberFormatJson, title
+    numberMode, numberField, numberAgg, numberFormula, numberRespectFilters ? 1 : 0, numberShowFraction ? 1 : 0, numberFormatJson, title
   );
   res.json({
     chart: {
@@ -56,7 +56,7 @@ router.post("/:workspaceId/dashboards/:dashboardId/charts", requireDashboardOwne
       x_field: finalXField, y_field: yField, y_field_denominator: yFieldDenominator, agg, sort_order: count, drill_fields: finalDrillFields,
       rank_limit: rankLimit, rank_direction: rankDirection, rank_show_other: rankShowOther ? 1 : 0,
       number_mode: numberMode, number_field: numberField, number_agg: numberAgg, number_formula: numberFormula,
-      number_respect_filters: numberRespectFilters ? 1 : 0, number_format_json: numberFormatJson, title,
+      number_respect_filters: numberRespectFilters ? 1 : 0, number_show_fraction: numberShowFraction ? 1 : 0, number_format_json: numberFormatJson, title,
     },
   });
 });
@@ -97,6 +97,7 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
   const numberAgg = "numberAgg" in req.body ? req.body.numberAgg : chart.number_agg;
   const numberFormula = "numberFormula" in req.body ? req.body.numberFormula : chart.number_formula;
   const numberRespectFilters = "numberRespectFilters" in req.body ? (req.body.numberRespectFilters ? 1 : 0) : chart.number_respect_filters;
+  const numberShowFraction = "numberShowFraction" in req.body ? (req.body.numberShowFraction ? 1 : 0) : chart.number_show_fraction;
   const numberFormatJson = "numberFormat" in req.body
     ? (req.body.numberFormat ? JSON.stringify(req.body.numberFormat) : null)
     : chart.number_format_json;
@@ -123,13 +124,13 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
     `UPDATE charts SET
       sheet_id = ?, type = ?, x_field = ?, y_field = ?, y_field_denominator = ?, agg = ?, drill_fields_json = ?,
       rank_limit = ?, rank_direction = ?, rank_show_other = ?,
-      number_mode = ?, number_field = ?, number_agg = ?, number_formula = ?, number_respect_filters = ?, number_format_json = ?,
+      number_mode = ?, number_field = ?, number_agg = ?, number_formula = ?, number_respect_filters = ?, number_show_fraction = ?, number_format_json = ?,
       title = ?, grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ?
     WHERE id = ?`
   ).run(
     sheetId, patch.type, xField, patch.yField ?? patch.y_field, patch.yFieldDenominator ?? patch.y_field_denominator ?? null, patch.agg, JSON.stringify(drillFields),
     rankLimit, rankDirection, rankShowOther,
-    numberMode, numberField, numberAgg, numberFormula, numberRespectFilters, numberFormatJson,
+    numberMode, numberField, numberAgg, numberFormula, numberRespectFilters, numberShowFraction, numberFormatJson,
     title, gridX, gridY, gridW, gridH,
     chart.id
   );
