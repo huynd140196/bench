@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor } from "./charting";
 import { evaluateKpiFormula, detectKpiFraction } from "./kpiFormula";
-import { timeAgo } from "../utils";
 import { useTheme } from "../ThemeContext";
 import { chartPalette } from "../chartTheme";
 
@@ -416,49 +415,25 @@ export default function ChartCard({
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {readOnly ? (
-        // Two-line header (Option B): title gets the full card width on its own line, never
-        // truncated (it wraps if it's genuinely long rather than ellipsizing); the sheet-name
-        // badge and refresh timestamp move to a second, visually secondary line underneath
-        // instead of competing with the title for the same row. Every read-only card gets this
-        // second line (the sheet badge is always present), so short-titled cards stay
-        // consistent with long-titled ones rather than looking oddly taller by comparison.
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <Icon size={14} color="var(--teal)" style={{ flexShrink: 0 }} />
-            <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
-              {displayTitle}
-            </span>
-            {isSelectionOrigin && activeSelectionValue && (
-              <button
-                onClick={() => onSelect(currentField, null)}
-                className="btn-ghost mono"
-                style={{ fontSize: 10, padding: "2px 6px", background: "var(--teal-soft)", color: "var(--teal)", borderRadius: 5, flexShrink: 0 }}
-                title="Clear selection"
-              >
-                {activeSelectionValue} <X size={9} style={{ verticalAlign: "middle" }} />
-              </button>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 22, minWidth: 0 }}>
-            {sheet?.name && (
-              <span
-                className="mono"
-                title={`Data source: ${sheet.name}`}
-                style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap", padding: "1px 5px", background: "var(--paper)", borderRadius: 4, border: "1px solid var(--border-soft)" }}
-              >
-                {sheet.name}
-              </span>
-            )}
-            {sheet?.sourceType === "google_sheets" && (
-              <span
-                className="mono"
-                title={`Sheet data last refreshed ${sheet.updatedAt}`}
-                style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap" }}
-              >
-                data as of {timeAgo(sheet.updatedAt)}
-              </span>
-            )}
-          </div>
+        // Single-line header: title gets the full card width, never truncated (wraps if
+        // genuinely long rather than ellipsizing). The sheet-name badge + refresh timestamp
+        // that used to sit on a second line underneath have been removed entirely (not just
+        // visually hidden) — see the removed computation note below.
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border-soft)", minWidth: 0 }}>
+          <Icon size={14} color="var(--teal)" style={{ flexShrink: 0 }} />
+          <span className="mono" style={{ fontSize: 12, color: "var(--ink-soft)", flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+            {displayTitle}
+          </span>
+          {isSelectionOrigin && activeSelectionValue && (
+            <button
+              onClick={() => onSelect(currentField, null)}
+              className="btn-ghost mono"
+              style={{ fontSize: 10, padding: "2px 6px", background: "var(--teal-soft)", color: "var(--teal)", borderRadius: 5, flexShrink: 0 }}
+              title="Clear selection"
+            >
+              {activeSelectionValue} <X size={9} style={{ verticalAlign: "middle" }} />
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>

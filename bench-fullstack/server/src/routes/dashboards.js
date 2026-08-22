@@ -27,15 +27,12 @@ function getDashboard(req, res) {
     }));
   const sheetIds = [...new Set(charts.map((c) => c.sheet_id))];
   const sheets = sheetIds
-    .map((id) => db.prepare("SELECT id, name, columns_json, rows_json, calculated_fields_json, source_type, updated_at FROM sheets WHERE id = ?").get(id))
+    .map((id) => db.prepare("SELECT id, name, columns_json, rows_json, calculated_fields_json FROM sheets WHERE id = ?").get(id))
     .filter(Boolean)
     .map((s) => {
       const calculatedFields = JSON.parse(s.calculated_fields_json || "[]");
       const { columns, rows } = withCalculatedFields(JSON.parse(s.columns_json), JSON.parse(s.rows_json), calculatedFields);
-      // sourceType/updatedAt: same camelCase convention listSheets() already uses (sheets.js) —
-      // lets the read-only dashboard view show a "data as of" freshness note for Google-Sheets-
-      // sourced charts, since a dashboard's own updated_at only reflects config changes.
-      return { id: s.id, name: s.name, columns, rows, sourceType: s.source_type, updatedAt: s.updated_at };
+      return { id: s.id, name: s.name, columns, rows };
     });
   res.json({ dashboard: { ...dash, filters: JSON.parse(dash.filters_json) }, charts, sheets });
 }
