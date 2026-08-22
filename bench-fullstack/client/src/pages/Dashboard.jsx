@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Filter, Copy, Check, X } from "lucide-react";
 import { api } from "../api";
 import DashboardCharts from "../components/DashboardCharts";
 import DashboardSkeleton from "../components/DashboardSkeleton";
+import { DRILLABLE_TYPES } from "../components/ChartCard";
 
 // Anyone can view a dashboard at this route; only the original creator (dashboard.created_by)
 // sees/uses the edit controls below. Everyone else gets the same read-only view SharedDashboard.jsx renders.
@@ -16,6 +17,9 @@ export default function Dashboard({ user }) {
   const [filters, setFilters] = useState({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Whether the "+ Add chart" sheet picker is showing (only relevant when the workspace has
+  // 2+ sheets — a single-sheet workspace skips straight to addChartForSheet, see startAddChart).
+  const [sheetPickerOpen, setSheetPickerOpen] = useState(false);
   // Click-to-cross-filter selection ({ chartId, sheetId, field, value }): client-only,
   // resets on reload, separate from the persisted checkbox Filters panel above.
   const [selection, setSelection] = useState(null);
@@ -50,17 +54,62 @@ export default function Dashboard({ user }) {
     saveFilters({ ...filters, [sheetId]: sheetFilters });
   };
 
-  const addChart = async () => {
-    const sheet = workspaceSheets[0];
-    if (!sheet) return alert("Upload a sheet in this workspace first.");
-    const full = sheetsById[sheet.id] || (await api.getSheet(workspaceId, sheet.id)).sheet;
-    setSheetsById((p) => ({ ...p, [sheet.id]: full }));
+  // Clicking "+ Add chart": with 2+ sheets in the workspace, show the picker so the user
+  // chooses which sheet the new chart reads from. With exactly one sheet, there's no real
+  // choice to make, so skip straight to addChartForSheet — same code path either way, just
+  // with the picker step trivially skipped rather than a separate single-sheet shortcut.
+  const startAddChart = () => {
+    if (workspaceSheets.length === 0) return alert("Upload a sheet in this workspace first.");
+    if (workspaceSheets.length === 1) return addChartForSheet(workspaceSheets[0]);
+    setSheetPickerOpen(true);
+  };
+
+  const addChartForSheet = async (sheetStub) => {
+    const full = sheetsById[sheetStub.id] || (await api.getSheet(workspaceId, sheetStub.id)).sheet;
+    setSheetsById((p) => ({ ...p, [sheetStub.id]: full }));
     const dims = full.columns.filter((c) => c.type === "dimension");
     const meas = full.columns.filter((c) => c.type === "measure");
     const { chart } = await api.addChart(workspaceId, dashboardId, {
-      sheetId: sheet.id, type: "bar", xField: dims[0]?.name, yField: meas[0]?.name, agg: "sum",
+      sheetId: sheetStub.id, type: "bar", xField: dims[0]?.name, yField: meas[0]?.name, agg: "sum",
     });
     setCharts((cs) => [...cs, chart]);
+    setSheetPickerOpen(false);
+  };
+
+  // Re-points an existing chart at a different sheet. Every field-dependent value gets reset
+  // to a sensible default for the NEW sheet's columns instead of carrying over the old sheet's
+  // field names, which would otherwise silently reference columns that don't exist there.
+  // number_formula is reset too even though it's free text, not a field-name dropdown — a
+  // formula like "SUM(Sales)" embeds an old-sheet field name just as directly as number_field
+  // does, so it's just as stale after the sheet changes.
+  // "" (not null) is used for the cleared string fields to match how every existing dropdown
+  // in ChartCard already represents "unset" (a `<select>`'s empty-option value is "", never
+  // null) — sending null here would silently no-op via the "??" fallback both the client
+  // reducer and the server route use for these particular fields.
+  const changeChartSheet = async (chartId, sheetId) => {
+    const chart = charts.find((c) => c.id === chartId);
+    if (!chart || !sheetId || sheetId === chart.sheet_id) return;
+    const full = sheetsById[sheetId] || (await api.getSheet(workspaceId, sheetId)).sheet;
+    setSheetsById((p) => ({ ...p, [sheetId]: full }));
+    const dims = full.columns.filter((c) => c.type === "dimension");
+    const meas = full.columns.filter((c) => c.type === "measure");
+
+    const shared = {
+      sheetId, yFieldDenominator: "", agg: "sum",
+      numberField: meas[0]?.name ?? "", numberAgg: "sum", numberFormula: "",
+    };
+    let fieldReset;
+    if (chart.type === "scatter") {
+      // Scatter's x/y are both measures (see ChartCard's non-drillable field selects), not
+      // drill levels, so xField is sent directly rather than via drillFields.
+      fieldReset = { xField: meas[0]?.name ?? "", yField: meas[1]?.name ?? meas[0]?.name ?? "" };
+    } else if (DRILLABLE_TYPES.includes(chart.type)) {
+      fieldReset = { drillFields: dims[0] ? [dims[0].name] : [], yField: meas[0]?.name ?? "" };
+    } else {
+      // table/number: x/y aren't used for rendering, but clear them anyway so nothing stale lingers.
+      fieldReset = { drillFields: [], yField: "" };
+    }
+    await updateChart(chartId, { ...shared, ...fieldReset });
   };
 
   const updateChart = async (id, patch) => {
@@ -73,6 +122,7 @@ export default function Dashboard({ user }) {
       // from "field wasn't sent, keep the old value" since null is nullish either way.
       return {
         ...c,
+        sheet_id: "sheetId" in patch ? patch.sheetId : c.sheet_id,
         type: patch.type ?? c.type,
         x_field,
         y_field: patch.yField ?? c.y_field,
@@ -177,11 +227,29 @@ export default function Dashboard({ user }) {
         onRemoveChart={isOwner ? removeChart : undefined}
         selection={selection}
         onSelectionChange={setSelection}
+        workspaceSheets={isOwner ? workspaceSheets : undefined}
+        onChangeChartSheet={isOwner ? changeChartSheet : undefined}
       >
         {isOwner && (
-          <button onClick={addChart} style={{ minHeight: 240, border: "1.5px dashed var(--border)", borderRadius: 10, background: "transparent", color: "var(--ink-faint)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
-            <Plus size={18} /> Add chart
-          </button>
+          sheetPickerOpen ? (
+            <div style={{ minHeight: 240, border: "1.5px dashed var(--border)", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="mono" style={{ fontSize: 10, textTransform: "uppercase", color: "var(--ink-faint)" }}>Choose a sheet</span>
+                <button onClick={() => setSheetPickerOpen(false)} className="btn-ghost" style={{ padding: 2 }}><X size={12} /></button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, overflow: "auto" }}>
+                {workspaceSheets.map((s) => (
+                  <button key={s.id} onClick={() => addChartForSheet(s)} className="btn mono" style={{ justifyContent: "flex-start", textAlign: "left", fontSize: 12 }}>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <button onClick={startAddChart} style={{ minHeight: 240, border: "1.5px dashed var(--border)", borderRadius: 10, background: "transparent", color: "var(--ink-faint)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
+              <Plus size={18} /> Add chart
+            </button>
+          )
         )}
       </DashboardCharts>
     </div>

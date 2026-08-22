@@ -38,7 +38,9 @@ export const CHART_TYPES = [
 ];
 
 // Chart types with a categorical x/name axis — the ones drill-down and click-to-select apply to.
-const DRILLABLE_TYPES = ["bar", "line", "area", "pie"];
+// Exported so Dashboard.jsx's sheet-change field reset can pick sensible defaults per type
+// without duplicating (and risking drift from) this list.
+export const DRILLABLE_TYPES = ["bar", "line", "area", "pie"];
 
 // A clickable point for Line/Area — recharts' custom `dot` render prop receives geometry
 // (cx/cy) merged with the point's own data (payload) so it can be turned into a real
@@ -89,6 +91,7 @@ function formatNumberValue(value, { decimals, abbreviate, prefix, suffix }) {
 export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
   isSelectionOrigin, activeSelectionValue, onSelect, showDragHandle, inGridLayout,
+  workspaceSheets, onChangeSheet,
 }) {
   const { mode } = useTheme();
   const palette = chartPalette(mode);
@@ -428,6 +431,15 @@ export default function ChartCard({
               {readOnlyLabel || displayTitle}
             </span>
           )}
+          {sheet?.name && (
+            <span
+              className="mono"
+              title={`Data source: ${sheet.name}`}
+              style={{ fontSize: 10, color: "var(--ink-faint)", flexShrink: 0, whiteSpace: "nowrap", padding: "1px 5px", background: "var(--paper)", borderRadius: 4, border: "1px solid var(--border-soft)" }}
+            >
+              {sheet.name}
+            </span>
+          )}
           {readOnly && sheet?.sourceType === "google_sheets" && (
             <span
               className="mono"
@@ -467,6 +479,17 @@ export default function ChartCard({
 
       {!readOnly && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+          {onChangeSheet && workspaceSheets && workspaceSheets.length > 1 && (
+            <select
+              value={chart.sheet_id}
+              onChange={(e) => onChangeSheet(e.target.value)}
+              className="mono"
+              style={{ fontSize: 12, padding: "4px 6px" }}
+              title="Change this chart's data source sheet"
+            >
+              {workspaceSheets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
           <div style={{ display: "flex", gap: 4 }}>
             {CHART_TYPES.map((t) => {
               const TIcon = t.icon;

@@ -66,6 +66,11 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
   if (!chart) return res.status(404).json({ error: "Chart not found" });
   const patch = { ...chart, ...req.body };
 
+  // Switching a chart to a different sheet — same requireDashboardOwner gate as every other
+  // field, no new permission concept. The client is responsible for resetting the now-stale
+  // field-dependent values (x/y fields, drill levels, etc.) alongside this in the same patch.
+  const sheetId = "sheetId" in req.body ? req.body.sheetId : chart.sheet_id;
+
   // drillFields (when sent) is authoritative and x_field is derived as its first entry, so
   // the ordered-levels editor and the plain x-field dropdown (scatter/table) never fight.
   let drillFields;
@@ -108,7 +113,7 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
   const effectiveType = patch.type;
   if (effectiveType === "number" && numberMode === "formula" && numberFormula) {
     try {
-      validateKpiFormula(numberFormula, sheetFieldNames(chart.sheet_id));
+      validateKpiFormula(numberFormula, sheetFieldNames(sheetId));
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
@@ -116,13 +121,13 @@ router.patch("/:workspaceId/dashboards/:dashboardId/charts/:chartId", requireDas
 
   db.prepare(
     `UPDATE charts SET
-      type = ?, x_field = ?, y_field = ?, y_field_denominator = ?, agg = ?, drill_fields_json = ?,
+      sheet_id = ?, type = ?, x_field = ?, y_field = ?, y_field_denominator = ?, agg = ?, drill_fields_json = ?,
       rank_limit = ?, rank_direction = ?, rank_show_other = ?,
       number_mode = ?, number_field = ?, number_agg = ?, number_formula = ?, number_respect_filters = ?, number_format_json = ?,
       title = ?, grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ?
     WHERE id = ?`
   ).run(
-    patch.type, xField, patch.yField ?? patch.y_field, patch.yFieldDenominator ?? patch.y_field_denominator ?? null, patch.agg, JSON.stringify(drillFields),
+    sheetId, patch.type, xField, patch.yField ?? patch.y_field, patch.yFieldDenominator ?? patch.y_field_denominator ?? null, patch.agg, JSON.stringify(drillFields),
     rankLimit, rankDirection, rankShowOther,
     numberMode, numberField, numberAgg, numberFormula, numberRespectFilters, numberFormatJson,
     title, gridX, gridY, gridW, gridH,
