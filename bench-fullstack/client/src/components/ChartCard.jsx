@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
-  PieChart, Pie, Cell, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  PieChart, Pie, Cell, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
 } from "recharts";
 import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
@@ -82,6 +82,17 @@ function formatNumberValue(value, { decimals, abbreviate, prefix, suffix }) {
 // actual denominator the formula names. An agg side keeps the existing rounded/abbreviated form.
 function formatFractionSide(side) {
   return side.type === "literal" ? String(side.value) : fmtNum(Math.round(side.value));
+}
+
+// Bar-chart value labels (read-only only) — deliberately NOT fmtNum, which abbreviates to
+// K/M/B for axis ticks/tooltips: a label sitting directly above a bar is read as the exact
+// figure, so it always renders the untruncated number (comma-grouped only for readability).
+// Ratio-agg bars already carry a raw 0–1 fraction in chartRows (aggregate()'s "ratio" branch
+// divides sums but never multiplies by 100 outside the pie-only overall-ratio path), so this
+// renders that same fraction the tooltip already shows, just unabbreviated.
+function fmtExact(n) {
+  if (n === undefined || n === null || isNaN(n)) return "";
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 export default function ChartCard({
@@ -843,7 +854,7 @@ export default function ChartCard({
         ) : (
           <ResponsiveContainer width="100%" height={inGridLayout ? "100%" : 230}>
             {type === "bar" ? (
-              <BarChart data={chartRows} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <BarChart data={chartRows} margin={{ top: readOnly ? 22 : 4, right: 8, left: -16, bottom: 0 }}>
                 {readOnly && (
                   <defs>
                     {palette.series.map((color, i) => (
@@ -860,6 +871,9 @@ export default function ChartCard({
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Bar dataKey="value" radius={[3, 3, 0, 0]} onClick={(data) => handleSegmentClick(data?.payload ?? data)} cursor="pointer" {...entryAnim}>
                   {chartRows.map((r, i) => <Cell key={i} fill={barFill(i, hasSelectionMatch && r.name !== activeSelectionValue)} />)}
+                  {readOnly && (
+                    <LabelList dataKey="value" position="top" formatter={fmtExact} fill={palette.axisText} fontSize={10} />
+                  )}
                 </Bar>
               </BarChart>
             ) : type === "line" ? (
