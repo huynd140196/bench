@@ -89,7 +89,7 @@ export function aggregate(rows, xField, yField, agg, sortMode, yFieldDenominator
     // two modes differ only in WHICH categories are picked, not in display order.
     let result = [...selected].sort((a, b) => b.value - a.value);
     if (showOther) {
-      const bucket = bucketFrom(excluded, "Everything else");
+      const bucket = bucketFrom(excluded, "Others");
       if (bucket) result = [...result, bucket];
     }
     return result;
@@ -97,7 +97,7 @@ export function aggregate(rows, xField, yField, agg, sortMode, yFieldDenominator
 
   if (out.length > 12) {
     const head = out.slice(0, 11);
-    const bucket = bucketFrom(out.slice(11), "Other");
+    const bucket = bucketFrom(out.slice(11), "Others");
     out = bucket ? [...head, bucket] : head;
     if (sortMode === "name") out.sort((a, b) => a.name.localeCompare(b.name));
   }
