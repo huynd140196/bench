@@ -105,6 +105,16 @@ function categoryColorKey(name, isOther) {
   return isOther ? "cat:__others__" : `cat:${name}`;
 }
 
+// The native <input type="color"> silently rejects anything but a "#rrggbb" hex string (falling
+// back to black), so a computed style's "rgb(r, g, b)" — which is also what a resolved CSS
+// variable like var(--ink-faint) reads back as — needs converting before priming that input.
+function rgbStringToHex(rgbStr) {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgbStr || "");
+  if (!m) return "#000000";
+  const toHex = (n) => Number(n).toString(16).padStart(2, "0");
+  return `#${toHex(m[1])}${toHex(m[2])}${toHex(m[3])}`;
+}
+
 export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
   isSelectionOrigin, activeSelectionValue, onSelect, showDragHandle, inGridLayout,
@@ -451,15 +461,23 @@ export default function ChartCard({
   const pendingColorKeyRef = useRef(null);
   const canEditColors = !readOnly && !!onSetCategoryColor;
 
-  const handleSegmentHover = (key, color, event) => {
+  // Reads the hovered shape's own ACTUAL rendered color via getComputedStyle rather than
+  // recomputing it in JS — this is what lets a single code path handle every default correctly,
+  // including a CSS-variable default like the Remainder slice's "var(--ink-faint)" (the browser
+  // resolves it to a concrete rgb() for us) without special-casing it. Safe from ever resolving
+  // a gradient url() instead of a flat color: hover-editing only runs in the editor
+  // (canEditColors implies !readOnly), and editor-mode bars never use the readOnly-only
+  // per-category gradient fill, so there's always a flat, computed-style-resolvable color here.
+  const handleSegmentHover = (key, event) => {
     const containerRect = chartAreaRef.current?.getBoundingClientRect();
     const targetRect = event.target.getBoundingClientRect();
     if (!containerRect) return;
+    const hex = rgbStringToHex(getComputedStyle(event.target).fill);
     setHoverColorKey(key);
     setHoverColorPos({
       left: targetRect.left - containerRect.left + targetRect.width / 2,
       top: targetRect.top - containerRect.top,
-      color,
+      color: hex,
     });
   };
 
@@ -478,7 +496,10 @@ export default function ChartCard({
   // The floating swatch+reset control shown for whichever category/measure key is currently
   // active — either the hovered bar/slice (bar/pie) or the one fixed key passed in for line/area.
   function ColorEditControl({ colorKey, color, style }) {
-    const label = colorKey === "cat:__others__" ? "Others" : colorKey.replace(/^cat:|^field:/, "");
+    const label = colorKey === "cat:__others__" ? "Others"
+      : colorKey.endsWith(":highlight") ? "Highlight"
+      : colorKey.endsWith(":remainder") ? "Remainder"
+      : colorKey.replace(/^cat:|^field:/, "");
     return (
       <div
         style={{
@@ -518,6 +539,13 @@ export default function ChartCard({
   const seriesColorKey = `field:${yField}`;
   const seriesColorOverride = categoryColors?.[seriesColorKey];
   const seriesColor = seriesColorOverride || (type === "line" ? palette.amber : palette.teal);
+
+  // The no-dimension overall-ratio pie widget has no category name to key by (its two slices
+  // are synthetic, not real data values), so its colors are scoped to this one chart instead of
+  // shared globally like a real category's "cat:<name>" — a color set here on one ratio widget
+  // must never bleed into a different ratio widget on the same dashboard.
+  const ratioHighlightKey = `chart:${chart.id}:highlight`;
+  const ratioRemainderKey = `chart:${chart.id}:remainder`;
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -974,8 +1002,7 @@ export default function ChartCard({
                   onMouseEnter={canEditColors ? (data, index, e) => {
                     const r = chartRows[index];
                     if (!r) return;
-                    const key = categoryColorKey(r.name, r.isOther);
-                    handleSegmentHover(key, segmentColor(index, false, palette, categoryColors?.[key]), e);
+                    handleSegmentHover(categoryColorKey(r.name, r.isOther), e);
                   } : undefined}
                   cursor="pointer"
                   {...entryAnim}
@@ -1061,11 +1088,11 @@ export default function ChartCard({
                   outerRadius={80}
                   label={isOverallRatio ? renderOverallRatioLabel : axisTick}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
-                  onMouseEnter={canEditColors && !isOverallRatio ? (data, index, e) => {
+                  onMouseEnter={canEditColors ? (data, index, e) => {
                     const r = pieDisplayRows[index];
                     if (!r) return;
-                    const key = categoryColorKey(r.name, r.isOther);
-                    handleSegmentHover(key, segmentColor(index, false, palette, categoryColors?.[key]), e);
+                    const key = isOverallRatio ? (r.name === "Remainder" ? ratioRemainderKey : ratioHighlightKey) : categoryColorKey(r.name, r.isOther);
+                    handleSegmentHover(key, e);
                   } : undefined}
                   cursor={isOverallRatio ? "default" : "pointer"}
                   {...entryAnim}
@@ -1081,12 +1108,13 @@ export default function ChartCard({
                       // a plain panel on its own. ink-faint is deliberately legible-but-secondary
                       // against the panel in both themes, giving clearer separation from both the
                       // panel and the highlighted slice than dimColor did (particularly in dark mode,
-                      // where dimColor sits close in luminance to the panel background). The
-                      // isOverallRatio widget is a fixed percent-of-whole gauge (its two slices are
-                      // synthetic, not real categories — see chartRows above), so it's excluded from
-                      // custom coloring entirely rather than colorable via the same override map.
+                      // where dimColor sits close in luminance to the panel background) — reset on
+                      // this specific slice restores exactly this value, not the categorical dimColor.
+                      // The isOverallRatio widget has no category name to key by, so its two slices
+                      // use their own chart-scoped keys (ratioHighlightKey/ratioRemainderKey) rather
+                      // than the globally-shared "cat:<name>" identity real categories get.
                       fill={isOverallRatio
-                        ? (r.name === "Remainder" ? "var(--ink-faint)" : segmentColor(0, false, palette))
+                        ? (r.name === "Remainder" ? (categoryColors?.[ratioRemainderKey] || "var(--ink-faint)") : (categoryColors?.[ratioHighlightKey] || segmentColor(0, false, palette)))
                         : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette, categoryColors?.[categoryColorKey(r.name, r.isOther)])}
                     />
                   ))}
