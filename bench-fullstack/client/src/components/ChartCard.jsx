@@ -481,6 +481,59 @@ export default function ChartCard({
     });
   };
 
+  // Pie only (both categorical and the overall-ratio widget): adjacent slices share an edge
+  // with zero gap between them, so an icon positioned near a thin slice's boundary often sits
+  // over a NEIGHBORING slice's actual hit-region — simply moving the cursor toward your own
+  // icon can graze that neighbor and, with instant reassignment, permanently steal the hover to
+  // it before you arrive. Bar rectangles don't have this problem (non-overlapping x-ranges with
+  // real gaps between them), so they keep the plain instant handleSegmentHover above untouched.
+  //
+  // Fix: a single SHARED pending-timer per chart (not one per slice) — the first hover (nothing
+  // currently shown) still commits instantly for a snappy first response, but once something IS
+  // shown, a *different* slice's onMouseEnter only schedules a switch rather than committing it;
+  // re-entering the currently-shown slice cancels any pending switch outright. Leaving the chart
+  // schedules a clear the same way, cancelable the same way. Because there's only ever one
+  // timer/candidate in flight, rapid grazing across several slices just keeps re-arming the same
+  // timer with a new target instead of letting two slices' icons independently resolve and
+  // flicker against each other.
+  const PIE_HOVER_SETTLE_MS = 200;
+  const pieHoverTimerRef = useRef(null);
+
+  const handlePieSegmentEnter = (key, event) => {
+    if (key === hoverColorKey) {
+      if (pieHoverTimerRef.current) { clearTimeout(pieHoverTimerRef.current); pieHoverTimerRef.current = null; }
+      return;
+    }
+    if (hoverColorKey === null) {
+      handleSegmentHover(key, event);
+      return;
+    }
+    if (pieHoverTimerRef.current) clearTimeout(pieHoverTimerRef.current);
+    pieHoverTimerRef.current = setTimeout(() => {
+      pieHoverTimerRef.current = null;
+      handleSegmentHover(key, event);
+    }, PIE_HOVER_SETTLE_MS);
+  };
+
+  const handlePieAreaLeave = () => {
+    if (pieHoverTimerRef.current) clearTimeout(pieHoverTimerRef.current);
+    pieHoverTimerRef.current = setTimeout(() => {
+      pieHoverTimerRef.current = null;
+      setHoverColorKey(null);
+      setHoverColorPos(null);
+    }, PIE_HOVER_SETTLE_MS);
+  };
+
+  // A brief graze through a neighboring slice on the way to THIS icon schedules a pending
+  // switch (above) that nothing otherwise cancels once the cursor actually arrives here — the
+  // icon button occludes the SVG at this exact point, so no slice's onMouseEnter fires to
+  // re-affirm "stay put." Canceling here, the moment the cursor genuinely reaches the icon, is
+  // what makes it actually reachable rather than switching out from under the cursor after the
+  // fact. Harmless for the non-pie (bar) case too — pieHoverTimerRef is simply never set there.
+  const cancelPendingPieHoverSwitch = () => {
+    if (pieHoverTimerRef.current) { clearTimeout(pieHoverTimerRef.current); pieHoverTimerRef.current = null; }
+  };
+
   const openColorPicker = (key, currentColor) => {
     pendingColorKeyRef.current = key;
     if (colorInputRef.current) {
@@ -502,6 +555,7 @@ export default function ChartCard({
       : colorKey.replace(/^cat:|^field:/, "");
     return (
       <div
+        onMouseEnter={cancelPendingPieHoverSwitch}
         style={{
           position: "absolute", display: "flex", alignItems: "center", gap: 2, padding: 3,
           background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 6,
@@ -924,7 +978,7 @@ export default function ChartCard({
         ref={chartAreaRef}
         className={readOnly ? "chart-viz-readonly" : undefined}
         style={inGridLayout ? { padding: 12, flex: 1, minHeight: 0, position: "relative" } : { padding: 12, minHeight: 240, position: "relative" }}
-        onMouseLeave={canEditColors ? () => setHoverColorKey(null) : undefined}
+        onMouseLeave={canEditColors ? (type === "pie" ? handlePieAreaLeave : () => setHoverColorKey(null)) : undefined}
       >
         {type === "table" ? (
           <DataTable rows={rows} columns={sheet?.columns || []} fillHeight={inGridLayout} />
@@ -1092,7 +1146,7 @@ export default function ChartCard({
                     const r = pieDisplayRows[index];
                     if (!r) return;
                     const key = isOverallRatio ? (r.name === "Remainder" ? ratioRemainderKey : ratioHighlightKey) : categoryColorKey(r.name, r.isOther);
-                    handleSegmentHover(key, e);
+                    handlePieSegmentEnter(key, e);
                   } : undefined}
                   cursor={isOverallRatio ? "default" : "pointer"}
                   {...entryAnim}
