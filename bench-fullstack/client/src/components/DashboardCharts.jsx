@@ -25,7 +25,7 @@ import { useIsDesktop } from "../useIsDesktop";
 // that sheetId (the originating chart already reflects its own click via its local
 // drill/selection state, and re-filtering its own rows here would collapse it down to a
 // single bar instead of just highlighting one).
-export default function DashboardCharts({ charts, sheetsById, filters, readOnly, onUpdateChart, onRemoveChart, selection, onSelectionChange, workspaceSheets, onChangeChartSheet, children }) {
+export default function DashboardCharts({ charts, sheetsById, filters, readOnly, onUpdateChart, onRemoveChart, selection, onSelectionChange, workspaceSheets, onChangeChartSheet, categoryColors, onSetCategoryColor, onResetCategoryColor, children }) {
   const isDesktop = useIsDesktop();
 
   // Read-only-only: the editor's empty state is the existing empty grid + "+ Add chart" tile
@@ -70,6 +70,9 @@ export default function DashboardCharts({ charts, sheetsById, filters, readOnly,
         activeSelectionValue={isSelectionOrigin ? selection.value : null}
         workspaceSheets={workspaceSheets}
         onChangeSheet={onChangeChartSheet ? (sheetId) => onChangeChartSheet(c.id, sheetId) : undefined}
+        categoryColors={categoryColors}
+        onSetCategoryColor={onSetCategoryColor}
+        onResetCategoryColor={onResetCategoryColor}
         onSelect={
           onSelectionChange
             ? (field, value) => onSelectionChange(value == null ? null : { chartId: c.id, sheetId: sheet.id, field, value })

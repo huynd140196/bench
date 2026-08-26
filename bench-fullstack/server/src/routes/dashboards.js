@@ -34,7 +34,11 @@ function getDashboard(req, res) {
       const { columns, rows } = withCalculatedFields(JSON.parse(s.columns_json), JSON.parse(s.rows_json), calculatedFields);
       return { id: s.id, name: s.name, columns, rows };
     });
-  res.json({ dashboard: { ...dash, filters: JSON.parse(dash.filters_json) }, charts, sheets });
+  res.json({
+    dashboard: { ...dash, filters: JSON.parse(dash.filters_json), category_colors: JSON.parse(dash.category_colors_json) },
+    charts,
+    sheets,
+  });
 }
 
 router.get("/:workspaceId/dashboards/:dashboardId", optionalAuth, getDashboard);
@@ -49,11 +53,12 @@ router.post("/:workspaceId/dashboards", requireAuth, requireWorkspaceAccess("edi
 });
 
 router.patch("/:workspaceId/dashboards/:dashboardId", optionalAuth, requireDashboardOwner, (req, res) => {
-  const { name, filters } = req.body;
+  const { name, filters, categoryColors } = req.body;
   const dash = req.dashboard;
-  db.prepare("UPDATE dashboards SET name = ?, filters_json = ?, updated_at = datetime('now') WHERE id = ?").run(
+  db.prepare("UPDATE dashboards SET name = ?, filters_json = ?, category_colors_json = ?, updated_at = datetime('now') WHERE id = ?").run(
     name ?? dash.name,
     filters ? JSON.stringify(filters) : dash.filters_json,
+    categoryColors ? JSON.stringify(categoryColors) : dash.category_colors_json,
     dash.id
   );
   res.json({ ok: true });

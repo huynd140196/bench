@@ -5,9 +5,9 @@ import {
 } from "recharts";
 import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
-  ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil, GripVertical,
+  ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil, GripVertical, RotateCcw,
 } from "lucide-react";
-import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor } from "./charting";
+import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, hexToRgba } from "./charting";
 import { evaluateKpiFormula, detectKpiFraction } from "./kpiFormula";
 import { useTheme } from "../ThemeContext";
 import { chartPalette } from "../chartTheme";
@@ -95,10 +95,21 @@ function fmtExact(n) {
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+// Stable key for a bar/pie category's persisted color override — "cat:" namespaced so a
+// category name can never collide with a line/area measure's "field:" key in the same
+// dashboard-level map. The rank/truncation overflow bucket ("Others (N)") gets one fixed
+// sentinel key regardless of its current count, since N changes as the underlying data does
+// and a color keyed to the exact display string would silently stop matching the moment the
+// count differs.
+function categoryColorKey(name, isOther) {
+  return isOther ? "cat:__others__" : `cat:${name}`;
+}
+
 export default function ChartCard({
   chart, sheet, rows, baseRows, dims, meas, readOnly, onUpdate, onRemove,
   isSelectionOrigin, activeSelectionValue, onSelect, showDragHandle, inGridLayout,
   workspaceSheets, onChangeSheet,
+  categoryColors, onSetCategoryColor, onResetCategoryColor,
 }) {
   const { mode } = useTheme();
   const palette = chartPalette(mode);
@@ -414,14 +425,99 @@ export default function ChartCard({
       : {}),
   };
   // Gradient bar fill (item 2) — only substitutes a per-color gradient url for the ACTIVE
-  // (non-dimmed) case in read-only; dimmed segments and editor mode both keep the exact flat
-  // segmentColor() fill used today. Gradient ids are scoped by chart.id so multiple cards on
-  // one dashboard never collide.
-  const barFill = (i, isDimmed) => (readOnly && !isDimmed ? `url(#bar-grad-${chart.id}-${i % palette.series.length})` : segmentColor(i, isDimmed, palette));
+  // (non-dimmed), non-custom-colored case in read-only; dimmed segments, editor mode, and any
+  // custom-overridden bar all keep the exact flat segmentColor() fill (a custom color renders as
+  // a flat swatch, not a re-derived gradient, to avoid generating/managing a per-category
+  // gradient def for every possible override). Gradient ids are scoped by chart.id so multiple
+  // cards on one dashboard never collide.
+  const barFill = (i, isDimmed, overrideColor) =>
+    (readOnly && !isDimmed && !overrideColor ? `url(#bar-grad-${chart.id}-${i % palette.series.length})` : segmentColor(i, isDimmed, palette, overrideColor));
   // Axis tick / pie-label / legend text color — previously unset on all of these, so they fell
   // back to recharts' own hardcoded default gray, invisible against a dark panel.
   const axisTick = { fontSize: 10, fill: palette.axisText };
   const legendStyle = { fontSize: 10, color: palette.axisText };
+
+  // Per-category color-override editing (owner/admin only, see the floating swatch control
+  // rendered after the chart below). Bar/pie hover a specific segment (many possible targets,
+  // so the trigger tracks whichever one the pointer is over); line/area get one fixed icon
+  // instead (exactly one editable target — the whole series — so there's no ambiguity to track).
+  // Position is computed from the hovered SVG shape's own getBoundingClientRect() relative to
+  // chartAreaRef, rather than recharts' internal geometry, so the same mechanism works for both
+  // Bar (rectangles) and Pie (arcs) without reimplementing either shape's layout math.
+  const chartAreaRef = useRef(null);
+  const [hoverColorKey, setHoverColorKey] = useState(null);
+  const [hoverColorPos, setHoverColorPos] = useState(null); // { left, top, color }
+  const colorInputRef = useRef(null);
+  const pendingColorKeyRef = useRef(null);
+  const canEditColors = !readOnly && !!onSetCategoryColor;
+
+  const handleSegmentHover = (key, color, event) => {
+    const containerRect = chartAreaRef.current?.getBoundingClientRect();
+    const targetRect = event.target.getBoundingClientRect();
+    if (!containerRect) return;
+    setHoverColorKey(key);
+    setHoverColorPos({
+      left: targetRect.left - containerRect.left + targetRect.width / 2,
+      top: targetRect.top - containerRect.top,
+      color,
+    });
+  };
+
+  const openColorPicker = (key, currentColor) => {
+    pendingColorKeyRef.current = key;
+    if (colorInputRef.current) {
+      colorInputRef.current.value = currentColor || "#000000";
+      colorInputRef.current.click();
+    }
+  };
+
+  const handleColorInputChange = (e) => {
+    if (pendingColorKeyRef.current && onSetCategoryColor) onSetCategoryColor(pendingColorKeyRef.current, e.target.value);
+  };
+
+  // The floating swatch+reset control shown for whichever category/measure key is currently
+  // active — either the hovered bar/slice (bar/pie) or the one fixed key passed in for line/area.
+  function ColorEditControl({ colorKey, color, style }) {
+    const label = colorKey === "cat:__others__" ? "Others" : colorKey.replace(/^cat:|^field:/, "");
+    return (
+      <div
+        style={{
+          position: "absolute", display: "flex", alignItems: "center", gap: 2, padding: 3,
+          background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 6,
+          boxShadow: "0 2px 8px var(--shadow-elevated)", zIndex: 5, ...style,
+        }}
+      >
+        <button
+          type="button"
+          title={`Custom color for "${label}"`}
+          onClick={() => openColorPicker(colorKey, color)}
+          className="btn-ghost"
+          style={{ padding: 3, display: "flex" }}
+        >
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: "1px solid var(--border)" }} />
+        </button>
+        {categoryColors?.[colorKey] && (
+          <button
+            type="button"
+            title="Reset to default color"
+            onClick={() => onResetCategoryColor(colorKey)}
+            className="btn-ghost"
+            style={{ padding: 3 }}
+          >
+            <RotateCcw size={11} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Line/area's whole-series override — keyed by the measure (y-field) name rather than a
+  // category, since there's no per-category element to click on a single-series line/area.
+  // "field:" namespaced so it can never collide with a "cat:<name>" bar/pie key even if a
+  // category value happens to match a measure's name.
+  const seriesColorKey = `field:${yField}`;
+  const seriesColorOverride = categoryColors?.[seriesColorKey];
+  const seriesColor = seriesColorOverride || (type === "line" ? palette.amber : palette.teal);
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -797,8 +893,10 @@ export default function ChartCard({
       )}
 
       <div
+        ref={chartAreaRef}
         className={readOnly ? "chart-viz-readonly" : undefined}
-        style={inGridLayout ? { padding: 12, flex: 1, minHeight: 0 } : { padding: 12, minHeight: 240 }}
+        style={inGridLayout ? { padding: 12, flex: 1, minHeight: 0, position: "relative" } : { padding: 12, minHeight: 240, position: "relative" }}
+        onMouseLeave={canEditColors ? () => setHoverColorKey(null) : undefined}
       >
         {type === "table" ? (
           <DataTable rows={rows} columns={sheet?.columns || []} fillHeight={inGridLayout} />
@@ -869,8 +967,24 @@ export default function ChartCard({
                 <XAxis dataKey="name" tick={axisTick} interval={0} angle={-20} textAnchor="end" height={50} />
                 <YAxis tick={axisTick} tickFormatter={fmtNum} />
                 <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
-                <Bar dataKey="value" radius={[3, 3, 0, 0]} onClick={(data) => handleSegmentClick(data?.payload ?? data)} cursor="pointer" {...entryAnim}>
-                  {chartRows.map((r, i) => <Cell key={i} fill={barFill(i, hasSelectionMatch && r.name !== activeSelectionValue)} />)}
+                <Bar
+                  dataKey="value"
+                  radius={[3, 3, 0, 0]}
+                  onClick={(data) => handleSegmentClick(data?.payload ?? data)}
+                  onMouseEnter={canEditColors ? (data, index, e) => {
+                    const r = chartRows[index];
+                    if (!r) return;
+                    const key = categoryColorKey(r.name, r.isOther);
+                    handleSegmentHover(key, segmentColor(index, false, palette, categoryColors?.[key]), e);
+                  } : undefined}
+                  cursor="pointer"
+                  {...entryAnim}
+                >
+                  {chartRows.map((r, i) => {
+                    const key = categoryColorKey(r.name, r.isOther);
+                    const isDimmed = hasSelectionMatch && r.name !== activeSelectionValue;
+                    return <Cell key={i} fill={barFill(i, isDimmed, categoryColors?.[key])} />;
+                  })}
                   {readOnly && (
                     <LabelList dataKey="value" position="top" formatter={fmtExact} fill={palette.axisText} fontSize={10} />
                   )}
@@ -885,13 +999,13 @@ export default function ChartCard({
                 <Line
                   type="monotone"
                   dataKey="value"
-                  stroke={palette.amber}
+                  stroke={seriesColor}
                   strokeWidth={2}
                   dot={(dotProps) => (
                     <ClickableDot
                       key={dotProps.index}
                       {...dotProps}
-                      color={palette.amber}
+                      color={seriesColor}
                       dimColor={palette.dimColor}
                       strokeColor={palette.dotStroke}
                       isDim={hasSelectionMatch && dotProps.payload?.name !== activeSelectionValue}
@@ -906,8 +1020,8 @@ export default function ChartCard({
                 {readOnly && (
                   <defs>
                     <linearGradient id={`area-grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={palette.teal} stopOpacity={0.45} />
-                      <stop offset="100%" stopColor={palette.teal} stopOpacity={0} />
+                      <stop offset="0%" stopColor={seriesColor} stopOpacity={0.45} />
+                      <stop offset="100%" stopColor={seriesColor} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                 )}
@@ -918,14 +1032,14 @@ export default function ChartCard({
                 <Area
                   type="monotone"
                   dataKey="value"
-                  stroke={palette.teal}
-                  fill={readOnly ? `url(#area-grad-${chart.id})` : palette.tealSoftFill}
+                  stroke={seriesColor}
+                  fill={readOnly ? `url(#area-grad-${chart.id})` : (seriesColorOverride ? hexToRgba(seriesColorOverride, 0.15) : palette.tealSoftFill)}
                   strokeWidth={2}
                   dot={(dotProps) => (
                     <ClickableDot
                       key={dotProps.index}
                       {...dotProps}
-                      color={palette.teal}
+                      color={seriesColor}
                       dimColor={palette.dimColor}
                       strokeColor={palette.dotStroke}
                       isDim={hasSelectionMatch && dotProps.payload?.name !== activeSelectionValue}
@@ -947,6 +1061,12 @@ export default function ChartCard({
                   outerRadius={80}
                   label={isOverallRatio ? renderOverallRatioLabel : axisTick}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
+                  onMouseEnter={canEditColors && !isOverallRatio ? (data, index, e) => {
+                    const r = pieDisplayRows[index];
+                    if (!r) return;
+                    const key = categoryColorKey(r.name, r.isOther);
+                    handleSegmentHover(key, segmentColor(index, false, palette, categoryColors?.[key]), e);
+                  } : undefined}
                   cursor={isOverallRatio ? "default" : "pointer"}
                   {...entryAnim}
                   {...(readOnly ? { animationId: pieAnimId, animationDuration: 240 } : {})}
@@ -961,8 +1081,13 @@ export default function ChartCard({
                       // a plain panel on its own. ink-faint is deliberately legible-but-secondary
                       // against the panel in both themes, giving clearer separation from both the
                       // panel and the highlighted slice than dimColor did (particularly in dark mode,
-                      // where dimColor sits close in luminance to the panel background).
-                      fill={isOverallRatio ? (r.name === "Remainder" ? "var(--ink-faint)" : segmentColor(0, false, palette)) : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette)}
+                      // where dimColor sits close in luminance to the panel background). The
+                      // isOverallRatio widget is a fixed percent-of-whole gauge (its two slices are
+                      // synthetic, not real categories — see chartRows above), so it's excluded from
+                      // custom coloring entirely rather than colorable via the same override map.
+                      fill={isOverallRatio
+                        ? (r.name === "Remainder" ? "var(--ink-faint)" : segmentColor(0, false, palette))
+                        : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette, categoryColors?.[categoryColorKey(r.name, r.isOther)])}
                     />
                   ))}
                 </Pie>
@@ -977,6 +1102,32 @@ export default function ChartCard({
               </ScatterChart>
             )}
           </ResponsiveContainer>
+        )}
+
+        {/* Bar/pie: floating swatch+reset control tracking whichever segment is currently
+            hovered. Line/area: one fixed swatch+reset control in the corner, since the whole
+            series is the only editable target — no hover-tracking needed. Both read from the
+            same categoryColors map and the same ColorEditControl/openColorPicker/native
+            <input type="color"> plumbing above; owner/admin only (canEditColors), never shown
+            to a read-only viewer. */}
+        {canEditColors && (type === "bar" || type === "pie") && hoverColorKey && hoverColorPos && (
+          <ColorEditControl
+            colorKey={hoverColorKey}
+            color={hoverColorPos.color}
+            style={{ left: hoverColorPos.left, top: hoverColorPos.top, transform: "translate(-50%, -100%)", marginTop: -6 }}
+          />
+        )}
+        {canEditColors && (type === "line" || type === "area") && (
+          <ColorEditControl colorKey={seriesColorKey} color={seriesColor} style={{ top: 4, right: 4 }} />
+        )}
+        {canEditColors && (
+          <input
+            type="color"
+            ref={colorInputRef}
+            onChange={handleColorInputChange}
+            style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }}
+            tabIndex={-1}
+          />
         )}
       </div>
     </div>

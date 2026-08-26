@@ -25,6 +25,7 @@ export default function SharedDashboard() {
 
   const sheetsById = Object.fromEntries(data.sheets.map((s) => [s.id, s]));
   const filters = data.dashboard.filters || {};
+  const categoryColors = data.dashboard.category_colors || {};
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -44,6 +45,7 @@ export default function SharedDashboard() {
         charts={data.charts}
         sheetsById={sheetsById}
         filters={filters}
+        categoryColors={categoryColors}
         readOnly
         selection={selection}
         onSelectionChange={setSelection}

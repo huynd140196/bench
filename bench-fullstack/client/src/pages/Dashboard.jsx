@@ -16,6 +16,7 @@ export default function Dashboard({ user }) {
   const [sheetsById, setSheetsById] = useState({});
   const [filters, setFilters] = useState({});
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [categoryColors, setCategoryColors] = useState({});
   const [copied, setCopied] = useState(false);
   // Whether the "+ Add chart" sheet picker is showing (only relevant when the workspace has
   // 2+ sheets — a single-sheet workspace skips straight to addChartForSheet, see startAddChart).
@@ -33,6 +34,7 @@ export default function Dashboard({ user }) {
     setDashboard(dashRes.dashboard);
     setCharts(dashRes.charts);
     setFilters(dashRes.dashboard.filters || {});
+    setCategoryColors(dashRes.dashboard.category_colors || {});
     setSheetsById(Object.fromEntries(dashRes.sheets.map((s) => [s.id, s])));
     // Only needed to populate the "add chart" sheet picker below; requires workspace
     // membership, so a non-member owner (or any non-member viewer) simply won't get it.
@@ -44,6 +46,19 @@ export default function Dashboard({ user }) {
   const saveFilters = async (next) => {
     setFilters(next);
     await api.updateDashboard(workspaceId, dashboardId, { filters: next });
+  };
+
+  const setCategoryColor = (key, hex) => {
+    const next = { ...categoryColors, [key]: hex };
+    setCategoryColors(next);
+    api.updateDashboard(workspaceId, dashboardId, { categoryColors: next });
+  };
+
+  const resetCategoryColor = (key) => {
+    const next = { ...categoryColors };
+    delete next[key];
+    setCategoryColors(next);
+    api.updateDashboard(workspaceId, dashboardId, { categoryColors: next });
   };
 
   const toggleFilterValue = (sheetId, field, value) => {
@@ -230,6 +245,9 @@ export default function Dashboard({ user }) {
         onSelectionChange={setSelection}
         workspaceSheets={isOwner ? workspaceSheets : undefined}
         onChangeChartSheet={isOwner ? changeChartSheet : undefined}
+        categoryColors={categoryColors}
+        onSetCategoryColor={isOwner ? setCategoryColor : undefined}
+        onResetCategoryColor={isOwner ? resetCategoryColor : undefined}
       >
         {isOwner && (
           sheetPickerOpen ? (

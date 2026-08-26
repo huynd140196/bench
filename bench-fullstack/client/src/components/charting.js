@@ -122,7 +122,22 @@ export function fmtNum(n) {
 // same chart, and the current theme's chart palette (see chartTheme.js — kept out of this
 // file so charting.js stays framework-agnostic, no React/theme import here). Selected segment
 // (or "no selection at all") keeps its normal color; every other segment when a selection IS
-// active gets muted.
-export function segmentColor(index, isDimmed, palette) {
-  return isDimmed ? palette.dimColor : palette.series[index % palette.series.length];
+// active gets muted. `overrideColor` (a persisted per-category custom color, looked up by the
+// caller) is just a different "full color" input to this same dim logic — dimmed still always
+// wins to dimColor regardless of override, so cross-filter dimming behaves identically whether
+// a segment is custom-colored or not.
+export function segmentColor(index, isDimmed, palette, overrideColor) {
+  if (isDimmed) return palette.dimColor;
+  return overrideColor || palette.series[index % palette.series.length];
+}
+
+// Expands a 6-digit hex color to an rgba() string at the given alpha — used for the editor
+// (non-readOnly) Area fill, which needs a translucent wash of whatever color is active (default
+// teal or a custom override) rather than a flat opaque fill.
+export function hexToRgba(hex, alpha) {
+  const clean = (hex || "").replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
