@@ -111,7 +111,7 @@ export default function Dashboard({ user }) {
 
     const shared = {
       sheetId, yFieldDenominator: "", agg: "sum",
-      numberField: meas[0]?.name ?? "", numberAgg: "sum", numberFormula: "", numberShowFraction: false,
+      numberField: meas[0]?.name ?? "", numberAgg: "sum", numberFormula: "", numberShowFraction: false, numberDisplayMode: "number",
     };
     let fieldReset;
     if (chart.type === "scatter") {
@@ -153,6 +153,7 @@ export default function Dashboard({ user }) {
         number_formula: "numberFormula" in patch ? patch.numberFormula : c.number_formula,
         number_respect_filters: "numberRespectFilters" in patch ? (patch.numberRespectFilters ? 1 : 0) : c.number_respect_filters,
         number_show_fraction: "numberShowFraction" in patch ? (patch.numberShowFraction ? 1 : 0) : c.number_show_fraction,
+        number_display_mode: "numberDisplayMode" in patch ? patch.numberDisplayMode : c.number_display_mode,
         number_format_json: "numberFormat" in patch ? (patch.numberFormat ? JSON.stringify(patch.numberFormat) : null) : c.number_format_json,
         title: "title" in patch ? (patch.title || null) : c.title,
         grid_x: "gridX" in patch ? patch.gridX : c.grid_x,

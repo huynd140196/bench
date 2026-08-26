@@ -7,7 +7,7 @@ import {
   BarChart3, TrendingUp, PieChart as PieIcon, Table2, LayoutGrid, Trash2,
   ChevronRight, ChevronUp, ChevronDown, X, Hash, Pencil, GripVertical, RotateCcw,
 } from "lucide-react";
-import { aggregate, aggField, sumRatio, looksTemporal, fmtNum, segmentColor, hexToRgba } from "./charting";
+import { aggregate, aggField, looksTemporal, fmtNum, segmentColor, hexToRgba } from "./charting";
 import { evaluateKpiFormula, detectKpiFraction } from "./kpiFormula";
 import { useTheme } from "../ThemeContext";
 import { chartPalette } from "../chartTheme";
@@ -51,12 +51,12 @@ function ClickableDot({ cx, cy, payload, isDim, onDotClick, color, dimColor, str
 
 const RADIAN = Math.PI / 180;
 
-// Custom label for the overall-ratio donut only (see isOverallRatio in ChartCard) — same
+// Custom label for the overall-ratio pie widget only (see OverallRatioPieChart below) — same
 // leader-line positioning recharts' default pie label uses, but shows the raw count alongside
 // the percentage for BOTH the ratio segment and Remainder (e.g. "16.47% (168)" / "83.53% (852)"),
 // since a bare percentage alone doesn't say how big the underlying numbers actually are. Both
-// slices carry their count in the same `rawCount` field (see chartRows' isOverallRatio branch),
-// so this one code path formats both identically with zero special-casing per slice.
+// slices carry their count in the same `rawCount` field (see OverallRatioPieChart's `rows`
+// computation), so this one code path formats both identically with zero special-casing per slice.
 function renderOverallRatioLabel({ cx, cy, midAngle, outerRadius, value, payload }) {
   const radius = outerRadius + 14;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
@@ -84,6 +84,14 @@ function formatNumberValue(value, { decimals, abbreviate, prefix, suffix }) {
 // actual denominator the formula names. An agg side keeps the existing rounded/abbreviated form.
 function formatFractionSide(side) {
   return side.type === "literal" ? String(side.value) : fmtNum(Math.round(side.value));
+}
+
+// Describes a fraction side by its FORMULA shape (not its resolved value) — "SUM(Resolved)" or
+// a literal's bare number — used to build the overall-ratio pie's slice name when a Number/KPI
+// widget is toggled to pie view, the same way a real ratio-agg chart names its slice after its
+// y_field/y_field_denominator column names.
+function fractionSideLabel(side) {
+  return side.type === "literal" ? String(side.value) : `${side.agg.toUpperCase()}(${side.field})`;
 }
 
 // Bar-chart value labels (read-only only) — deliberately NOT fmtNum, which abbreviates to
@@ -115,6 +123,231 @@ function rgbStringToHex(rgbStr) {
   if (!m) return "#000000";
   const toHex = (n) => Number(n).toString(16).padStart(2, "0");
   return `#${toHex(m[1])}${toHex(m[2])}${toHex(m[3])}`;
+}
+
+// The no-dimension overall-ratio pie widget — a highlighted slice + a "Remainder" slice —
+// extracted as a standalone, self-contained component so it can be fed a numerator/denominator
+// pair from ANY source, not just a real ratio-agg pie chart's y_field/y_field_denominator
+// columns. This is what lets the Number/KPI widget's "view as pie chart" toggle reuse this
+// exact widget (coloring, sticky hover-edit icon, Remainder count, dark/light) rather than
+// building a second implementation: it receives already-computed numerator/denominator values
+// and owns nothing chart-config-specific. `chartId` scopes the color-override keys the same way
+// chart.id did before extraction — a color set on one widget must never bleed into another.
+function OverallRatioPieChart({ chartId, label, numerator, denominator, readOnly, categoryColors, onSetCategoryColor, onResetCategoryColor, palette }) {
+  const ratioHighlightKey = `chart:${chartId}:highlight`;
+  const ratioRemainderKey = `chart:${chartId}:remainder`;
+
+  // Denominator summing to zero means "nothing to show" — same as sumRatio() returning null
+  // for the real ratio-agg chart case — rendered as an empty-data pie (no slices) rather than
+  // skipping the chart shell entirely, matching the pre-extraction behavior exactly.
+  const rows = useMemo(() => {
+    if (!denominator) return [];
+    const pct = Math.round((numerator / denominator) * 10000) / 100;
+    const out = [{ name: label, value: Math.min(pct, 100), isOther: true, rawCount: numerator }];
+    const remainder = Math.max(0, 100 - pct);
+    if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true, rawCount: denominator - numerator });
+    return out;
+  }, [label, numerator, denominator]);
+
+  const entryAnim = readOnly ? { isAnimationActive: true, animationDuration: 400, animationEasing: "ease-out" } : {};
+  const tooltipContentStyle = {
+    background: palette.tooltipBg,
+    color: palette.tooltipText,
+    ...(readOnly ? { borderRadius: 10, border: "1px solid var(--border-soft)", boxShadow: "var(--shadow-elevated)", fontSize: 12, padding: "8px 10px" } : {}),
+  };
+  const legendStyle = { fontSize: 10, color: palette.axisText };
+
+  // Staggered slice reveal (read-only only) — identical mechanism to the categorical pie's
+  // version (see ChartCard), just scoped to this component's own two-slice data instead of
+  // reading chartRows off the outer closure.
+  const rowsContentKey = rows.map((r) => `${r.name}:${r.value}`).join("|");
+  const PIE_REVEAL_BUDGET_MS = 450;
+  const PIE_REVEAL_MIN_STEP_MS = 25;
+  const PIE_REVEAL_MAX_STEP_MS = 90;
+  const [pieRevealCount, setPieRevealCount] = useState(0);
+  const [pieAnimId, setPieAnimId] = useState(0);
+  const pieAnimIdRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!readOnly) return undefined;
+    const total = rows.length;
+    if (total === 0) { setPieRevealCount(0); return undefined; }
+    const stepMs = Math.max(PIE_REVEAL_MIN_STEP_MS, Math.min(PIE_REVEAL_MAX_STEP_MS, PIE_REVEAL_BUDGET_MS / Math.max(1, total - 1)));
+    pieAnimIdRef.current += 1;
+    setPieRevealCount(1);
+    setPieAnimId(pieAnimIdRef.current);
+    const timers = [];
+    for (let i = 2; i <= total; i++) {
+      timers.push(setTimeout(() => {
+        pieAnimIdRef.current += 1;
+        setPieRevealCount(i);
+        setPieAnimId(pieAnimIdRef.current);
+      }, stepMs * (i - 1)));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [readOnly, rowsContentKey]);
+  const displayRows = readOnly ? rows.slice(0, pieRevealCount) : rows;
+
+  // Per-slice color-override editing — same ColorEditControl/openColorPicker/native
+  // <input type="color"> plumbing as the categorical pie/bar case, duplicated here (rather than
+  // shared via closure) since this component is invoked from two different parents and needs
+  // its own ref-backed state either way.
+  const chartAreaRef = useRef(null);
+  const [hoverColorKey, setHoverColorKey] = useState(null);
+  const [hoverColorPos, setHoverColorPos] = useState(null);
+  const colorInputRef = useRef(null);
+  const pendingColorKeyRef = useRef(null);
+  const canEditColors = !readOnly && !!onSetCategoryColor;
+
+  const handleSegmentHover = (key, event) => {
+    const containerRect = chartAreaRef.current?.getBoundingClientRect();
+    const targetRect = event.target.getBoundingClientRect();
+    if (!containerRect) return;
+    const hex = rgbStringToHex(getComputedStyle(event.target).fill);
+    setHoverColorKey(key);
+    setHoverColorPos({
+      left: targetRect.left - containerRect.left + targetRect.width / 2,
+      top: targetRect.top - containerRect.top,
+      color: hex,
+    });
+  };
+
+  // Hover-intent debounce identical to the categorical pie's (see ChartCard) — needed for the
+  // exact same reason: the two slices share an edge with zero gap, so a straight-line move
+  // toward one slice's own icon can graze the other slice's hit-region on the way.
+  const PIE_HOVER_SETTLE_MS = 200;
+  const pieHoverTimerRef = useRef(null);
+
+  const handlePieSegmentEnter = (key, event) => {
+    if (key === hoverColorKey) {
+      if (pieHoverTimerRef.current) { clearTimeout(pieHoverTimerRef.current); pieHoverTimerRef.current = null; }
+      return;
+    }
+    if (hoverColorKey === null) {
+      handleSegmentHover(key, event);
+      return;
+    }
+    if (pieHoverTimerRef.current) clearTimeout(pieHoverTimerRef.current);
+    pieHoverTimerRef.current = setTimeout(() => {
+      pieHoverTimerRef.current = null;
+      handleSegmentHover(key, event);
+    }, PIE_HOVER_SETTLE_MS);
+  };
+
+  const handlePieAreaLeave = () => {
+    if (pieHoverTimerRef.current) clearTimeout(pieHoverTimerRef.current);
+    pieHoverTimerRef.current = setTimeout(() => {
+      pieHoverTimerRef.current = null;
+      setHoverColorKey(null);
+      setHoverColorPos(null);
+    }, PIE_HOVER_SETTLE_MS);
+  };
+
+  const cancelPendingPieHoverSwitch = () => {
+    if (pieHoverTimerRef.current) { clearTimeout(pieHoverTimerRef.current); pieHoverTimerRef.current = null; }
+  };
+
+  const openColorPicker = (key, currentColor) => {
+    pendingColorKeyRef.current = key;
+    if (colorInputRef.current) {
+      colorInputRef.current.value = currentColor || "#000000";
+      colorInputRef.current.click();
+    }
+  };
+
+  const handleColorInputChange = (e) => {
+    if (pendingColorKeyRef.current && onSetCategoryColor) onSetCategoryColor(pendingColorKeyRef.current, e.target.value);
+  };
+
+  function ColorEditControl({ colorKey, color, style }) {
+    const editLabel = colorKey.endsWith(":highlight") ? "Highlight" : "Remainder";
+    return (
+      <div
+        onMouseEnter={cancelPendingPieHoverSwitch}
+        style={{
+          position: "absolute", display: "flex", alignItems: "center", gap: 2, padding: 3,
+          background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 6,
+          boxShadow: "0 2px 8px var(--shadow-elevated)", zIndex: 5, ...style,
+        }}
+      >
+        <button
+          type="button"
+          title={`Custom color for "${editLabel}"`}
+          onClick={() => openColorPicker(colorKey, color)}
+          className="btn-ghost"
+          style={{ padding: 3, display: "flex" }}
+        >
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: "1px solid var(--border)" }} />
+        </button>
+        {categoryColors?.[colorKey] && (
+          <button
+            type="button"
+            title="Reset to default color"
+            onClick={() => onResetCategoryColor(colorKey)}
+            className="btn-ghost"
+            style={{ padding: 3 }}
+          >
+            <RotateCcw size={11} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={chartAreaRef}
+      style={{ position: "relative", height: "100%", width: "100%" }}
+      onMouseLeave={canEditColors ? handlePieAreaLeave : undefined}
+    >
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Tooltip formatter={(v) => `${v}%`} contentStyle={tooltipContentStyle} />
+          <Legend wrapperStyle={legendStyle} />
+          <Pie
+            data={displayRows}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={0}
+            outerRadius={80}
+            label={renderOverallRatioLabel}
+            cursor="default"
+            onMouseEnter={canEditColors ? (data, index, e) => {
+              const r = displayRows[index];
+              if (!r) return;
+              const key = r.name === "Remainder" ? ratioRemainderKey : ratioHighlightKey;
+              handlePieSegmentEnter(key, e);
+            } : undefined}
+            {...entryAnim}
+            {...(readOnly ? { animationId: pieAnimId, animationDuration: 240 } : {})}
+          >
+            {displayRows.map((r, i) => (
+              <Cell
+                key={i}
+                fill={r.name === "Remainder" ? (categoryColors?.[ratioRemainderKey] || "var(--ink-faint)") : (categoryColors?.[ratioHighlightKey] || segmentColor(0, false, palette))}
+              />
+            ))}
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+
+      {canEditColors && hoverColorKey && hoverColorPos && (
+        <ColorEditControl
+          colorKey={hoverColorKey}
+          color={hoverColorPos.color}
+          style={{ left: hoverColorPos.left, top: hoverColorPos.top, transform: "translate(-50%, -100%)", marginTop: -6 }}
+        />
+      )}
+      {canEditColors && (
+        <input
+          type="color"
+          ref={colorInputRef}
+          onChange={handleColorInputChange}
+          style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }}
+          tabIndex={-1}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function ChartCard({
@@ -238,6 +471,17 @@ export default function ChartCard({
     };
   }, [kpiFractionShape, numberSourceRows]);
 
+  // "View as pie chart" — same shape requirement as "Display as fraction" (both need a real
+  // numerator/denominator pair), reusing kpiFractionShape/numberFractionResult rather than a
+  // second detection pass. Rendering (not just the checkbox) re-checks numberFractionResult so
+  // that editing the formula into an invalid shape while pie mode is still the stored preference
+  // falls back to the plain number view instead of handing OverallRatioPieChart nonsense.
+  const numberDisplayMode = chart.number_display_mode || "number";
+  const numberShowPie = numberDisplayMode === "pie" && !!numberFractionResult;
+  const numberFractionLabel = kpiFractionShape
+    ? `${fractionSideLabel(kpiFractionShape.numerator)} / ${fractionSideLabel(kpiFractionShape.denominator)}`
+    : "";
+
   // Count-up animation (item 4, read-only only). Re-runs whenever the target value changes
   // (mount, or a filter/selection change on a live dashboard), always counting from 0 over a
   // fixed short duration rather than tracking an in-flight "previous value" — simpler, and the
@@ -284,37 +528,24 @@ export default function ChartCard({
     return rows.filter((r) => drillPath.every((val, i) => String(r[drillFields[i]] ?? "") === val));
   }, [rows, drillPath, drillFields, needsAgg]);
 
+  // Raw numerator/denominator totals for the overall-ratio widget — computed here (not inside
+  // OverallRatioPieChart) since only ChartCard has access to drilledRows/yField/
+  // yFieldDenominator; the component itself just takes the two resulting numbers. Kept as a
+  // reduce (not sumRatio(), which only returns the quotient) so both totals are available for
+  // the widget's per-slice raw-count labels.
+  const ratioTotals = useMemo(() => {
+    if (!isOverallRatio || !yField || !yFieldDenominator) return null;
+    const rawNumerator = drilledRows.reduce((a, r) => a + (Number(r[yField]) || 0), 0);
+    const rawDenominator = drilledRows.reduce((a, r) => a + (Number(r[yFieldDenominator]) || 0), 0);
+    return { rawNumerator, rawDenominator };
+  }, [isOverallRatio, drilledRows, yField, yFieldDenominator]);
+
   const chartRows = useMemo(() => {
     if (type === "scatter" || type === "table") return [];
-    if (isOverallRatio) {
-      if (!yField || !yFieldDenominator) return [];
-      const ratio = sumRatio(drilledRows, yField, yFieldDenominator);
-      if (ratio === null) return []; // denominator sums to zero across the whole dataset — nothing to show
-      const pct = Math.round(ratio * 10000) / 100;
-      // sumRatio() only returns the quotient, not the raw sums it divided — recomputing both
-      // totals here (not touching sumRatio itself, which aggregate()'s per-category path also
-      // relies on) so each slice's label can show its own raw count alongside its percentage.
-      // Remainder's count is simply "the rest of the denominator total" — the portion the
-      // highlighted value doesn't cover — not a separately-aggregated field of its own, since
-      // Remainder isn't a real category with its own rows.
-      const rawNumerator = drilledRows.reduce((a, r) => a + (Number(r[yField]) || 0), 0);
-      const rawDenominator = drilledRows.reduce((a, r) => a + (Number(r[yFieldDenominator]) || 0), 0);
-      // Both slices are synthetic (not real field values), so both get isOther: true — the
-      // same flag the >12-category overflow bucket uses — which already makes
-      // handleSegmentClick treat them as non-interactive (no cross-filter/drill on a slice
-      // that doesn't correspond to an actual row value). rawCount (not rawNumerator) is the
-      // shared field name both slices' labels read from, since Remainder's count isn't a
-      // numerator — renderOverallRatioLabel doesn't care which slice it's labeling, only that
-      // a count is present, so both rows use the exact same field/format for free.
-      const out = [{ name: `${yField} / ${yFieldDenominator}`, value: Math.min(pct, 100), isOther: true, rawCount: rawNumerator }];
-      const remainder = Math.max(0, 100 - pct);
-      if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true, rawCount: rawDenominator - rawNumerator });
-      return out;
-    }
     if (!currentField) return [];
     const rankOptions = rankActive ? { limit: rankLimit, direction: rankDirection, showOther: rankShowOther } : undefined;
     return aggregate(drilledRows, currentField, yField, agg, isTemporalX ? "name" : "value", yFieldDenominator, rankOptions);
-  }, [drilledRows, currentField, yField, yFieldDenominator, agg, type, isTemporalX, isOverallRatio, rankActive, rankLimit, rankDirection, rankShowOther]);
+  }, [drilledRows, currentField, yField, yFieldDenominator, agg, type, isTemporalX, rankActive, rankLimit, rankDirection, rankShowOther]);
 
   // "(+ other)" reflects whether an Everything-else bucket actually rendered (chartRows has
   // one), not just whether the checkbox is on — when N >= the category count there's nothing
@@ -490,10 +721,11 @@ export default function ChartCard({
     });
   };
 
-  // Pie only (both categorical and the overall-ratio widget): adjacent slices share an edge
-  // with zero gap between them, so an icon positioned near a thin slice's boundary often sits
-  // over a NEIGHBORING slice's actual hit-region — simply moving the cursor toward your own
-  // icon can graze that neighbor and, with instant reassignment, permanently steal the hover to
+  // Categorical pie only (the overall-ratio widget has its own copy of this same mechanism
+  // inside OverallRatioPieChart): adjacent slices share an edge with zero gap between them, so
+  // an icon positioned near a thin slice's boundary often sits over a NEIGHBORING slice's
+  // actual hit-region — simply moving the cursor toward your own icon can graze that neighbor
+  // and, with instant reassignment, permanently steal the hover to
   // it before you arrive. Bar rectangles don't have this problem (non-overlapping x-ranges with
   // real gaps between them), so they keep the plain instant handleSegmentHover above untouched.
   //
@@ -556,12 +788,11 @@ export default function ChartCard({
   };
 
   // The floating swatch+reset control shown for whichever category/measure key is currently
-  // active — either the hovered bar/slice (bar/pie) or the one fixed key passed in for line/area.
+  // active — either the hovered bar/slice (bar/pie, categorical only — the overall-ratio widget
+  // has its own copy of this control inside OverallRatioPieChart) or the one fixed key passed in
+  // for line/area.
   function ColorEditControl({ colorKey, color, style }) {
-    const label = colorKey === "cat:__others__" ? "Others"
-      : colorKey.endsWith(":highlight") ? "Highlight"
-      : colorKey.endsWith(":remainder") ? "Remainder"
-      : colorKey.replace(/^cat:|^field:/, "");
+    const label = colorKey === "cat:__others__" ? "Others" : colorKey.replace(/^cat:|^field:/, "");
     return (
       <div
         onMouseEnter={cancelPendingPieHoverSwitch}
@@ -602,13 +833,6 @@ export default function ChartCard({
   const seriesColorKey = `field:${yField}`;
   const seriesColorOverride = categoryColors?.[seriesColorKey];
   const seriesColor = seriesColorOverride || (type === "line" ? palette.amber : palette.teal);
-
-  // The no-dimension overall-ratio pie widget has no category name to key by (its two slices
-  // are synthetic, not real data values), so its colors are scoped to this one chart instead of
-  // shared globally like a real category's "cat:<name>" — a color set here on one ratio widget
-  // must never bleed into a different ratio widget on the same dashboard.
-  const ratioHighlightKey = `chart:${chart.id}:highlight`;
-  const ratioRemainderKey = `chart:${chart.id}:remainder`;
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -924,6 +1148,25 @@ export default function ChartCard({
               Display as fraction
             </label>
           )}
+          {numberMode === "formula" && suffix === "%" && (
+            <label
+              className="mono"
+              style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, opacity: kpiFractionShape ? 1 : 0.5 }}
+              title={
+                kpiFractionShape
+                  ? undefined
+                  : "Only available when the formula is a single division where each side is an aggregate or a plain number (e.g. SUM(X)/SUM(Y), SUM(X)/100, or 100*SUM(X)/50)"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={numberDisplayMode === "pie"}
+                disabled={!kpiFractionShape}
+                onChange={(e) => onUpdate(chart.id, { numberDisplayMode: e.target.checked ? "pie" : "number" })}
+              />
+              View as pie chart
+            </label>
+          )}
           <label className="mono" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
             Decimals
             <input
@@ -991,6 +1234,20 @@ export default function ChartCard({
       >
         {type === "table" ? (
           <DataTable rows={rows} columns={sheet?.columns || []} fillHeight={inGridLayout} />
+        ) : isNumber && numberShowPie ? (
+          <div style={{ height: inGridLayout ? "100%" : 230 }}>
+            <OverallRatioPieChart
+              chartId={chart.id}
+              label={numberFractionLabel}
+              numerator={numberFractionResult.numerator.value}
+              denominator={numberFractionResult.denominator.value}
+              readOnly={readOnly}
+              categoryColors={categoryColors}
+              onSetCategoryColor={onSetCategoryColor}
+              onResetCategoryColor={onResetCategoryColor}
+              palette={palette}
+            />
+          </div>
         ) : isNumber ? (
           <div
             style={
@@ -1039,6 +1296,23 @@ export default function ChartCard({
         ) : (!isOverallRatio && !currentField) || !yField || (needsAgg && agg === "ratio" && !yFieldDenominator) ? (
           <div style={{ height: inGridLayout ? "100%" : 220, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--ink-faint)" }} className="mono">
             Choose fields to plot this chart
+          </div>
+        ) : isOverallRatio ? (
+          // Owns its own ResponsiveContainer/sizing, so it's rendered directly here rather than
+          // nested inside the shared one below (which every other chart type uses) — recharts'
+          // ResponsiveContainer doesn't nest cleanly.
+          <div style={{ height: inGridLayout ? "100%" : 230 }}>
+            <OverallRatioPieChart
+              chartId={chart.id}
+              label={`${yField} / ${yFieldDenominator}`}
+              numerator={ratioTotals?.rawNumerator ?? 0}
+              denominator={ratioTotals?.rawDenominator ?? 0}
+              readOnly={readOnly}
+              categoryColors={categoryColors}
+              onSetCategoryColor={onSetCategoryColor}
+              onResetCategoryColor={onResetCategoryColor}
+              palette={palette}
+            />
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={inGridLayout ? "100%" : 230}>
@@ -1140,8 +1414,11 @@ export default function ChartCard({
                 />
               </AreaChart>
             ) : type === "pie" ? (
+              // isOverallRatio never reaches here — it's rendered by OverallRatioPieChart above,
+              // outside this shared ResponsiveContainer entirely. This branch is always the real
+              // categorical breakdown (one slice per category, keyed by category name).
               <PieChart>
-                <Tooltip formatter={(v) => (isOverallRatio ? `${v}%` : fmtNum(v))} contentStyle={tooltipContentStyle} />
+                <Tooltip formatter={(v) => fmtNum(v)} contentStyle={tooltipContentStyle} />
                 <Legend wrapperStyle={legendStyle} />
                 <Pie
                   data={pieDisplayRows}
@@ -1149,36 +1426,21 @@ export default function ChartCard({
                   nameKey="name"
                   innerRadius={0}
                   outerRadius={80}
-                  label={isOverallRatio ? renderOverallRatioLabel : axisTick}
+                  label={axisTick}
                   onClick={(data) => handleSegmentClick(data?.payload ?? data)}
                   onMouseEnter={canEditColors ? (data, index, e) => {
                     const r = pieDisplayRows[index];
                     if (!r) return;
-                    const key = isOverallRatio ? (r.name === "Remainder" ? ratioRemainderKey : ratioHighlightKey) : categoryColorKey(r.name, r.isOther);
-                    handlePieSegmentEnter(key, e);
+                    handlePieSegmentEnter(categoryColorKey(r.name, r.isOther), e);
                   } : undefined}
-                  cursor={isOverallRatio ? "default" : "pointer"}
+                  cursor="pointer"
                   {...entryAnim}
                   {...(readOnly ? { animationId: pieAnimId, animationDuration: 240 } : {})}
                 >
                   {pieDisplayRows.map((r, i) => (
                     <Cell
                       key={i}
-                      // Remainder uses var(--ink-faint) directly (same "CSS var as SVG fill" pattern
-                      // renderOverallRatioLabel already uses below) rather than palette.dimColor --
-                      // dimColor is shared by every chart's cross-filter-dimming and is tuned for
-                      // that purpose (a muted copy of the ACTIVE color), not for standing out against
-                      // a plain panel on its own. ink-faint is deliberately legible-but-secondary
-                      // against the panel in both themes, giving clearer separation from both the
-                      // panel and the highlighted slice than dimColor did (particularly in dark mode,
-                      // where dimColor sits close in luminance to the panel background) — reset on
-                      // this specific slice restores exactly this value, not the categorical dimColor.
-                      // The isOverallRatio widget has no category name to key by, so its two slices
-                      // use their own chart-scoped keys (ratioHighlightKey/ratioRemainderKey) rather
-                      // than the globally-shared "cat:<name>" identity real categories get.
-                      fill={isOverallRatio
-                        ? (r.name === "Remainder" ? (categoryColors?.[ratioRemainderKey] || "var(--ink-faint)") : (categoryColors?.[ratioHighlightKey] || segmentColor(0, false, palette)))
-                        : segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette, categoryColors?.[categoryColorKey(r.name, r.isOther)])}
+                      fill={segmentColor(i, hasSelectionMatch && r.name !== activeSelectionValue, palette, categoryColors?.[categoryColorKey(r.name, r.isOther)])}
                     />
                   ))}
                 </Pie>
