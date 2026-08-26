@@ -57,11 +57,18 @@ const RADIAN = Math.PI / 180;
 // since a bare percentage alone doesn't say how big the underlying numbers actually are. Both
 // slices carry their count in the same `rawCount` field (see OverallRatioPieChart's `rows`
 // computation), so this one code path formats both identically with zero special-casing per slice.
+// `value` is interpolated through .toFixed(decimals) rather than shown raw: Remainder's value is
+// 100 - pct, and subtracting an already-rounded float from 100 routinely leaves floating-point
+// residue (e.g. 100 - 85.9 -> 14.099999999999994) even though the underlying number is
+// conceptually correct -- toFixed is what actually cleans that up for display. The count
+// (rawCount) deliberately uses fmtExact (comma-grouped, no K/M/B) rather than fmtNum: this pie's
+// counts are always shown in full, independent of any widget's Abbreviate setting.
 function renderOverallRatioLabel({ cx, cy, midAngle, outerRadius, value, payload }) {
   const radius = outerRadius + 14;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  const text = payload?.rawCount != null ? `${value}% (${fmtNum(payload.rawCount)})` : `${value}%`;
+  const pctText = Number(value).toFixed(payload?.decimals ?? 2);
+  const text = payload?.rawCount != null ? `${pctText}% (${fmtExact(payload.rawCount)})` : `${pctText}%`;
   return (
     <text x={x} y={y} fill="var(--ink-soft)" fontSize={10} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
       {text}
@@ -133,21 +140,23 @@ function rgbStringToHex(rgbStr) {
 // building a second implementation: it receives already-computed numerator/denominator values
 // and owns nothing chart-config-specific. `chartId` scopes the color-override keys the same way
 // chart.id did before extraction — a color set on one widget must never bleed into another.
-function OverallRatioPieChart({ chartId, label, numerator, denominator, readOnly, categoryColors, onSetCategoryColor, onResetCategoryColor, palette }) {
+function OverallRatioPieChart({ chartId, label, numerator, denominator, decimals, readOnly, categoryColors, onSetCategoryColor, onResetCategoryColor, palette }) {
   const ratioHighlightKey = `chart:${chartId}:highlight`;
   const ratioRemainderKey = `chart:${chartId}:remainder`;
 
   // Denominator summing to zero means "nothing to show" — same as sumRatio() returning null
   // for the real ratio-agg chart case — rendered as an empty-data pie (no slices) rather than
-  // skipping the chart shell entirely, matching the pre-extraction behavior exactly.
+  // skipping the chart shell entirely, matching the pre-extraction behavior exactly. `decimals`
+  // rides along on each row (not just passed separately to the label renderer) because recharts'
+  // label/tooltip callbacks only receive this row's own payload, not this component's props.
   const rows = useMemo(() => {
     if (!denominator) return [];
     const pct = Math.round((numerator / denominator) * 10000) / 100;
-    const out = [{ name: label, value: Math.min(pct, 100), isOther: true, rawCount: numerator }];
+    const out = [{ name: label, value: Math.min(pct, 100), isOther: true, rawCount: numerator, decimals }];
     const remainder = Math.max(0, 100 - pct);
-    if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true, rawCount: denominator - numerator });
+    if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true, rawCount: denominator - numerator, decimals });
     return out;
-  }, [label, numerator, denominator]);
+  }, [label, numerator, denominator, decimals]);
 
   const entryAnim = readOnly ? { isAnimationActive: true, animationDuration: 400, animationEasing: "ease-out" } : {};
   const tooltipContentStyle = {
@@ -301,7 +310,7 @@ function OverallRatioPieChart({ chartId, label, numerator, denominator, readOnly
     >
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Tooltip formatter={(v) => `${v}%`} contentStyle={tooltipContentStyle} />
+          <Tooltip formatter={(v, n, props) => `${Number(v).toFixed(props?.payload?.decimals ?? 2)}%`} contentStyle={tooltipContentStyle} />
           <Legend wrapperStyle={legendStyle} />
           <Pie
             data={displayRows}
@@ -1241,6 +1250,7 @@ export default function ChartCard({
               label={numberFractionLabel}
               numerator={numberFractionResult.numerator.value}
               denominator={numberFractionResult.denominator.value}
+              decimals={decimals}
               readOnly={readOnly}
               categoryColors={categoryColors}
               onSetCategoryColor={onSetCategoryColor}
@@ -1307,6 +1317,10 @@ export default function ChartCard({
               label={`${yField} / ${yFieldDenominator}`}
               numerator={ratioTotals?.rawNumerator ?? 0}
               denominator={ratioTotals?.rawDenominator ?? 0}
+              // Native ratio-agg pie has no decimals setting of its own (unlike the Number
+              // widget, which has number_format_json.decimals) -- fixed at 2 as a sensible
+              // default matching the precision already used internally for pct's own rounding.
+              decimals={2}
               readOnly={readOnly}
               categoryColors={categoryColors}
               onSetCategoryColor={onSetCategoryColor}
