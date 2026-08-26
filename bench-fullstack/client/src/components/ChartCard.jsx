@@ -52,14 +52,16 @@ function ClickableDot({ cx, cy, payload, isDim, onDotClick, color, dimColor, str
 const RADIAN = Math.PI / 180;
 
 // Custom label for the overall-ratio donut only (see isOverallRatio in ChartCard) — same
-// leader-line positioning recharts' default pie label uses, but shows the raw numerator
-// total alongside the percentage for the ratio segment (e.g. "16.47% (168)"), since a bare
-// percentage alone doesn't say how big the underlying numbers actually are.
+// leader-line positioning recharts' default pie label uses, but shows the raw count alongside
+// the percentage for BOTH the ratio segment and Remainder (e.g. "16.47% (168)" / "83.53% (852)"),
+// since a bare percentage alone doesn't say how big the underlying numbers actually are. Both
+// slices carry their count in the same `rawCount` field (see chartRows' isOverallRatio branch),
+// so this one code path formats both identically with zero special-casing per slice.
 function renderOverallRatioLabel({ cx, cy, midAngle, outerRadius, value, payload }) {
   const radius = outerRadius + 14;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  const text = payload?.rawNumerator != null ? `${value}% (${fmtNum(payload.rawNumerator)})` : `${value}%`;
+  const text = payload?.rawCount != null ? `${value}% (${fmtNum(payload.rawCount)})` : `${value}%`;
   return (
     <text x={x} y={y} fill="var(--ink-soft)" fontSize={10} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
       {text}
@@ -289,17 +291,24 @@ export default function ChartCard({
       const ratio = sumRatio(drilledRows, yField, yFieldDenominator);
       if (ratio === null) return []; // denominator sums to zero across the whole dataset — nothing to show
       const pct = Math.round(ratio * 10000) / 100;
-      // sumRatio() only returns the quotient, not the raw sums it divided — recomputing just
-      // the numerator here (not touching sumRatio itself, which aggregate()'s per-category
-      // path also relies on) so the label can show it alongside the percentage.
+      // sumRatio() only returns the quotient, not the raw sums it divided — recomputing both
+      // totals here (not touching sumRatio itself, which aggregate()'s per-category path also
+      // relies on) so each slice's label can show its own raw count alongside its percentage.
+      // Remainder's count is simply "the rest of the denominator total" — the portion the
+      // highlighted value doesn't cover — not a separately-aggregated field of its own, since
+      // Remainder isn't a real category with its own rows.
       const rawNumerator = drilledRows.reduce((a, r) => a + (Number(r[yField]) || 0), 0);
+      const rawDenominator = drilledRows.reduce((a, r) => a + (Number(r[yFieldDenominator]) || 0), 0);
       // Both slices are synthetic (not real field values), so both get isOther: true — the
       // same flag the >12-category overflow bucket uses — which already makes
       // handleSegmentClick treat them as non-interactive (no cross-filter/drill on a slice
-      // that doesn't correspond to an actual row value).
-      const out = [{ name: `${yField} / ${yFieldDenominator}`, value: Math.min(pct, 100), isOther: true, rawNumerator }];
+      // that doesn't correspond to an actual row value). rawCount (not rawNumerator) is the
+      // shared field name both slices' labels read from, since Remainder's count isn't a
+      // numerator — renderOverallRatioLabel doesn't care which slice it's labeling, only that
+      // a count is present, so both rows use the exact same field/format for free.
+      const out = [{ name: `${yField} / ${yFieldDenominator}`, value: Math.min(pct, 100), isOther: true, rawCount: rawNumerator }];
       const remainder = Math.max(0, 100 - pct);
-      if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true });
+      if (remainder > 0) out.push({ name: "Remainder", value: remainder, isOther: true, rawCount: rawDenominator - rawNumerator });
       return out;
     }
     if (!currentField) return [];
